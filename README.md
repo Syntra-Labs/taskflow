@@ -62,11 +62,16 @@ Add `taskflow` to your Neovim plugin configuration (e.g. via `lazy.nvim`):
 ```lua
 {
   "Syntra-Labs/taskflow",
-  config = function()
-    require("taskflow")
-  end,
+  opts = {
+    keymap_history = "<leader>h", -- or false to disable
+  },
 }
 ```
+
+Provides:
+- `:Tasks` — Task manager, in-line TODO scanner, and placement engine.
+- `:History` — Interactive visited files history list in recent order (with cursor jumps and time tracking).
+- `<leader>h` — Quick jump to visited file history.
 
 ---
 
@@ -75,6 +80,9 @@ Add `taskflow` to your Neovim plugin configuration (e.g. via `lazy.nvim`):
 ```bash
 # Scan and list all in-tree tasks
 taskflow --list
+
+# View recent file modification history
+taskflow history
 
 # Target a specific file or task ID
 taskflow src/engine.cpp:42

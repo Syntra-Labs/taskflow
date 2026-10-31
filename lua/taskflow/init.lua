@@ -135,7 +135,8 @@ M.test_task = tasks.test_task
 M.tasks_complete = tasks.tasks_complete
 M.tasks_command = tasks.tasks_command
 
-function M.setup()
+function M.setup(opts)
+  opts = opts or {}
   diff.setup_highlights()
   vim.api.nvim_create_autocmd("ColorScheme", {
     callback = diff.setup_highlights,
@@ -213,28 +214,6 @@ function M.setup()
     desc = "Visited files list in recent order (:History [qf|list|clear])",
   })
 
-  vim.api.nvim_create_user_command("Find", function(ctx)
-    M.state.origin_win = vim.api.nvim_get_current_win()
-    search.find(ctx.args)
-  end, {
-    nargs = "*",
-    complete = function(arglead, cmdline)
-      local scopes = { "@algo", "@deps", "@loogle", "@docs", "@code", "in" }
-      local out = {}
-      for _, s in ipairs(scopes) do
-        if vim.startswith(s, arglead) then
-          table.insert(out, s)
-        end
-      end
-      local files = vim.fn.getcompletion(arglead, "file")
-      for _, f in ipairs(files) do
-        table.insert(out, f)
-      end
-      return out
-    end,
-    desc = "Hybrid FZF + BM25 + AST Symbol + Docs search (:Find [@deps|@loogle|@docs|@code] <query> [in <path...>])",
-  })
-
   vim.api.nvim_create_user_command("Ask", function(ctx)
     M.state.origin_win = vim.api.nvim_get_current_win()
     local query = vim.trim(ctx.args or "")
@@ -287,17 +266,13 @@ function M.setup()
     complete = function(arglead, cmdline)
       return vim.tbl_filter(function(s) return vim.startswith(s:lower(), arglead:lower()) end, { "help" })
     end,
-    desc = "Show synvim commands and usage (:Synvim help)",
+    desc = "Show taskflow help and usage (:Synvim help)",
   })
 
-  -- Enable native lowercase command abbreviations
-  pcall(vim.cmd, [[
-    cnoreabbrev <expr> tasks (getcmdtype() ==# ':' && getcmdline() ==# 'tasks') ? 'Tasks' : 'tasks'
-    cnoreabbrev <expr> ask (getcmdtype() ==# ':' && getcmdline() ==# 'ask') ? 'Ask' : 'ask'
-    cnoreabbrev <expr> find (getcmdtype() ==# ':' && getcmdline() ==# 'find') ? 'Find' : 'find'
-    cnoreabbrev <expr> synvim (getcmdtype() ==# ':' && getcmdline() ==# 'synvim') ? 'Synvim' : 'synvim'
-    cnoreabbrev <expr> history (getcmdtype() ==# ':' && getcmdline() ==# 'history') ? 'History' : 'history'
-  ]])
+  if opts and opts.keymap_history ~= false then
+    local key = (type(opts) == "table" and opts.keymap_history) or "<leader>h"
+    vim.keymap.set("n", key, "<Cmd>History<CR>", { silent = true, desc = "Visited files list (:History)" })
+  end
 
   history.setup()
   cmdline.setup()

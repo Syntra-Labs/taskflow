@@ -819,6 +819,34 @@ def launch_nvim_interactive(file_path: Path, start_line: int, new_content: str, 
         return subprocess.call(cmd)
 
 
+def handle_history_command(args, root: Path) -> int:
+    try:
+        limit = 10
+        if getattr(args, "extra_args", None) and args.extra_args and args.extra_args[0].isdigit():
+            limit = int(args.extra_args[0])
+        cmd = ["git", "-C", str(root), "log", f"-n{limit}", "--pretty=format:%h %s", "--name-only"]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        if res.returncode == 0:
+            print(f"\n{BOLD}{CYAN}=== Project File Modification History ==={RESET}")
+            seen = set()
+            lines = res.stdout.splitlines()
+            for l in lines:
+                l = l.strip()
+                if not l:
+                    continue
+                if re.match(r'^[0-9a-f]{7,}\s', l):
+                    print(f"\n{BOLD}{DIM}{l}{RESET}")
+                else:
+                    if l not in seen:
+                        seen.add(l)
+                        print(f"  {CYAN}•{RESET} {l}")
+            print()
+            return 0
+    except Exception as e:
+        sys.stderr.write(f"Error reading history: {e}\n")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="agent: Source-First Task Execution Engine (CLI & Neovim)",
@@ -841,6 +869,7 @@ def main():
     parser.add_argument("--engine", choices=["agy", "opencode", "auto"], default="agy", help="Execution engine (default: agy)")
     parser.add_argument("--model", "-m", type=str, default=None, help="LLM model override")
     parser.add_argument("--list", action="store_true", help="List all detected TODO tasks without executing")
+    parser.add_argument("--history", action="store_true", help="Show recent file modification history in the repository")
     parser.add_argument("--budget", type=int, default=16000, help="Dependency context token budget for Code Graph IR")
     parser.add_argument("--dry-run", action="store_true", help="Print prompt and context without calling LLM")
     parser.add_argument("--accept", dest="accept_id", type=str, default=None, help="Mark review ID as human-accepted")
@@ -849,6 +878,9 @@ def main():
     args = parser.parse_args()
 
     root = find_git_root()
+    if args.target == "history" or args.history:
+        return handle_history_command(args, root)
+
     if args.accept_id or args.reject_id or args.target in ("review", "reviews", "git-review", "gitreview"):
         return handle_review_command(args, root)
 
