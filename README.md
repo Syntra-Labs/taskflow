@@ -1,23 +1,21 @@
 # taskflow
 
-> **Source-First Task Management, DAG Dependency Resolution, and Two-Layer Task Specification**  
-> Sovereign task agenda, in-tree task anchoring, and Neovim taskflow plugin.
+> **Task Management and Dependency Tracking Stored Directly in Your Code**  
+> CLI tool and Neovim plugin for tracking project tasks and dependencies.
 
 ---
 
 ## 1. Overview
 
-`taskflow` decouples task management, DAG dependency tracking, and contract specification from text editors into an independent, source-first systems tool.
+`taskflow` lets you track project tasks and dependencies directly inside your source code comments instead of using external ticketing tools.
 
-Instead of storing project status and tasks in ephemeral chat buffers or external SaaS ticketing systems:
-- **In-Tree Single Source of Truth**: All tasks are anchored directly in source code comments (`TODO (task_id): ...`, Hoare `requires: [dep1, dep2]`, `blocks: [...]`).
-- **Two-Layer Task Specification**: High-level architectural intent (Layer 1) paired with concrete Hoare preconditions/postconditions and file coordinates (Layer 2).
-- **Topological DAG Sorter**: Resolves task execution order using native C++20 topological graph traversal (`libtaskflow_dtl.so`).
-- **Geometric Task Routing**: Vendors [`Syntra-Labs/router`](https://github.com/Syntra-Labs/router) (`vendor/router`) to provide geometric task placement, 6 lifecycle archetypes (`#io`, `#state`, `#space`, `#op`, `#route`, `#gate`), and Bell-15 counterfactual split routing.
-- **Dual CLI & Neovim Workflow**:
-  - `taskflow --list`: Scan and rank in-line tasks across the repository.
-  - `taskflow <target>`: Execute an in-line task or target coordinate.
-  - Neovim plugin: `:Tasks`, `:Tasks add`, `:Tasks form`, `:Tasks drop`, `:Tasks test`.
+- **Tasks in Your Code**: Anchor tasks right next to the code they describe (`TODO (task_id): ...`, `requires: [dep1, dep2]`, `blocks: [...]`).
+- **Clear Requirements**: Connect high-level goals with specific functions, file locations, and conditions.
+- **Dependency Sorting**: Automatically figures out the right order to complete tasks based on dependencies (`libtaskflow_dtl.so`).
+- **CLI & Neovim Support**:
+  - `taskflow --list`: Scan and show all tasks across your project.
+  - `taskflow <target>`: Run or inspect a specific task.
+  - In Neovim: Use `:Tasks`, `:Tasks add`, `:Tasks test`.
 
 ---
 
