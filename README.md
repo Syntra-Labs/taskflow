@@ -13,6 +13,7 @@ Instead of storing project status and tasks in ephemeral chat buffers or externa
 - **In-Tree Single Source of Truth**: All tasks are anchored directly in source code comments (`TODO (task_id): ...`, Hoare `requires: [dep1, dep2]`, `blocks: [...]`).
 - **Two-Layer Task Specification**: High-level architectural intent (Layer 1) paired with concrete Hoare preconditions/postconditions and file coordinates (Layer 2).
 - **Topological DAG Sorter**: Resolves task execution order using native C++20 topological graph traversal (`libtaskflow_dtl.so`).
+- **Geometric Task Routing**: Vendors [`Syntra-Labs/router`](https://github.com/Syntra-Labs/router) (`vendor/router`) to provide geometric task placement, 6 lifecycle archetypes (`#io`, `#state`, `#space`, `#op`, `#route`, `#gate`), and Bell-15 counterfactual split routing.
 - **Dual CLI & Neovim Workflow**:
   - `taskflow --list`: Scan and rank in-line tasks across the repository.
   - `taskflow <target>`: Execute an in-line task or target coordinate.
@@ -30,6 +31,8 @@ taskflow/
 ├── c_src/
 │   ├── dtl_engine.cpp         # C++20 topological DAG & diff tolerance sorter
 │   └── anchor_engine.cpp      # C++20 fuzzy text anchoring engine
+├── vendor/
+│   └── router/                # Vendored Syntra-Labs/router for manifold task placement
 ├── lua/
 │   └── taskflow/              # Neovim plugin modules
 │       ├── init.lua
