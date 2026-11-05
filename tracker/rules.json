@@ -1,0 +1,29 @@
+{
+  "categories": {
+    "PRACTICE": {
+      "domains": ["leetcode.com", "codeforces.com", "deep-ml.com"],
+      "paths": ["/home/yassine/code/practice"]
+    },
+    "DEEP_WORK": {
+      "domains": [
+        "github.com/Syntra-Labs",
+        "github.com/yassine",
+        "docs.rs",
+        "arxiv.org",
+        "developer.mozilla.org",
+        "cppreference.com"
+      ],
+      "paths": [
+        "/home/yassine/code/tutor",
+        "/home/yassine/code/taskflow",
+        "/home/yassine/code/synvim",
+        "/home/yassine/code"
+      ]
+    },
+    "REST": {
+      "domains": ["youtube.com", "reddit.com", "twitter.com", "x.com"]
+    }
+  },
+  "min_block_minutes": 15,
+  "idle_threshold_seconds": 600
+}
