@@ -1,27 +1,85 @@
 {
   "categories": {
     "PRACTICE": {
-      "domains": ["leetcode.com", "codeforces.com", "deep-ml.com"],
-      "paths": ["/home/yassine/code/practice"]
+      "description": "Daily deliberate problem solving & math practice",
+      "domains": [
+        "leetcode.com",
+        "codeforces.com",
+        "deep-ml.com",
+        "github.com/Open-Deep-ML"
+      ],
+      "paths": [
+        "/home/yassine/code/practice"
+      ]
     },
-    "DEEP_WORK": {
+    "DEEP_WORK_CORE": {
+      "description": "Core software architecture, research & company repositories",
       "domains": [
         "github.com/Syntra-Labs",
         "github.com/yassine",
         "docs.rs",
         "arxiv.org",
         "developer.mozilla.org",
-        "cppreference.com"
+        "cppreference.com",
+        "stackoverflow.com"
       ],
       "paths": [
         "/home/yassine/code/tutor",
+        "/home/yassine/code/uor-r4",
         "/home/yassine/code/taskflow",
         "/home/yassine/code/synvim",
+        "/home/yassine/code/router",
+        "/home/yassine/code/tokenizer",
+        "/home/yassine/code/r4-prover",
+        "/home/yassine/code/prover",
+        "/home/yassine/code/lawful",
+        "/home/yassine/code/scribe",
+        "/home/yassine/code/dotfiles",
+        "/home/yassine/code/syntra-labs",
         "/home/yassine/code"
       ]
     },
+    "DEEP_WORK_ACADEMIC": {
+      "description": "Algonquin College Computer Engineering (CET-CS) coursework & study",
+      "domains": [
+        "algonquincollege.com",
+        "acsis.algonquincollege.com",
+        "algonquinlive.com",
+        "brightspace.com",
+        "plato.algonquincollege.com",
+        "pearson.com",
+        "pearsoncmg.com"
+      ],
+      "paths": [
+        "/home/yassine/Documents/BACKUP/CET-CS",
+        "/home/yassine/Documents/BACKUP/CET-CS/level1",
+        "/home/yassine/Documents/BACKUP/CET-CS/level2",
+        "/home/yassine/Documents/BACKUP/CET-CS/level3",
+        "/home/yassine/Documents/BACKUP/CET-CS/level5",
+        "/home/yassine/school",
+        "/home/yassine/code/school"
+      ]
+    },
+    "COMMUNICATION": {
+      "description": "Direct team and academic communication channels",
+      "domains": [
+        "discord.com",
+        "mail.google.com",
+        "slack.com"
+      ]
+    },
     "REST": {
-      "domains": ["youtube.com", "reddit.com", "twitter.com", "x.com"]
+      "description": "Leisure, entertainment, and social feeds (blocked during deep work/practice)",
+      "domains": [
+        "youtube.com",
+        "reddit.com",
+        "twitter.com",
+        "x.com",
+        "linkedin.com",
+        "instagram.com",
+        "tiktok.com",
+        "netflix.com"
+      ]
     }
   },
   "min_block_minutes": 15,

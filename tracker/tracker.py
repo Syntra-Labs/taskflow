@@ -92,16 +92,25 @@ def classify_activity(url, title, cwd, rules):
         if p in cwd_lower:
             return "PRACTICE", f"Practice in {os.path.basename(p)}"
 
-    # Check DEEP_WORK
-    deep = categories.get("DEEP_WORK", {})
-    for d in deep.get("domains", []):
+    # Check DEEP_WORK_CORE
+    deep_core = categories.get("DEEP_WORK_CORE", {})
+    for d in deep_core.get("domains", []):
         if d in url_lower:
-            proj = "Syntra-Labs" if "syntra-labs" in url_lower else "Dev"
-            return "DEEP_WORK", f"Deep Work: {title or proj}"
-    for p in deep.get("paths", []):
+            proj = "Syntra-Labs" if "syntra-labs" in url_lower else "Core Eng"
+            return "DEEP_WORK_CORE", f"Deep Work (Core): {title or proj}"
+    for p in deep_core.get("paths", []):
         if p in cwd_lower:
             proj = os.path.basename(cwd)
-            return "DEEP_WORK", f"Deep Work: {proj}"
+            return "DEEP_WORK_CORE", f"Deep Work (Core): {proj}"
+
+    # Check DEEP_WORK_ACADEMIC (Schoolwork / College)
+    academic = categories.get("DEEP_WORK_ACADEMIC", {})
+    for d in academic.get("domains", []):
+        if d in url_lower:
+            return "DEEP_WORK_ACADEMIC", f"Academic Study: {title or 'Schoolwork'}"
+    for p in academic.get("paths", []):
+        if p in cwd_lower:
+            return "DEEP_WORK_ACADEMIC", f"Academic Study: {os.path.basename(cwd)}"
 
     # Check REST
     rest = categories.get("REST", {})
