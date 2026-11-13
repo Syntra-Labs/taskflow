@@ -6,10 +6,17 @@ Deterministic, executable Policy-as-Code subsystem governing AI-agent usage limi
 
 * **[governance.rego](governance.rego)**: Declarative CNCF Open Policy Agent (OPA) policy defining:
   * `HEALTH-001`: Curfew active from 23:00 to 07:00 (commits and agentic tool use blocked).
-  * `HEALTH-002`: Single session limit (maximum 1 session of up to 120 minutes per day for agentic / vibe-coding tools; normal conversation is unmetered).
-  * `HEALTH-003`: Daily agentic and vibe-coding cap of 120 minutes across the 7:00 AM daily boundary.
+  * `HEALTH-002`: Single session limit (maximum 1 session of up to 120 minutes per day for ALL AI usage — agentic + vibe-coding + browser AI).
+  * `HEALTH-003`: Daily cap of 120 minutes across ALL AI usage, enforced across the 7:00 AM daily boundary.
   * `PRACTICE-001`: Mandatory daily deliberate practice (LeetCode, Codeforces, Deep-ML, or `~/code/practice`) before committing to other projects.
-* **[verify-governance](verify-governance)**: Telemetry aggregator and OPA runner. Analyzes local Git commits, Antigravity tool transcripts, and coding platform APIs to evaluate compliance.
+* **[verify-governance](verify-governance)**: Telemetry aggregator and OPA runner. Analyzes local Git commits, Antigravity tool transcripts, and browser AI usage (Chrome history dwell reconstruction) to evaluate compliance.
+
+  **AI usage accounting** — three sources are merged into a single session stream, clustered by a 30-minute gap:
+  1. Antigravity conversation transcripts (actual tool calls / tool executions only),
+  2. `git log --since=<governance day>` commits when the cwd looks like a vibe-coding repo,
+  3. Browser AI dwell time from `~/.config/google-chrome/Default/History` (visits to AI chat & assistant domains listed under `AI_USE` in `tracker/rules.json`).
+
+  Governance day starts at 7:00 AM, not calendar midnight. Any AI activity (CLI, desktop agent, or browser) consumes the same single daily session and the same 120-minute daily cap. `tracker/tracker.py --ai-usage-json` prints the browser-AI report standalone.
 * **[agent-governance-hook](agent-governance-hook)**: Pre-tool execution hook for Antigravity (`~/.gemini/config/hooks.json`).
 * **[universal-governance-wrapper](universal-governance-wrapper)**: Intercept wrapper for other coding agents (`claude`, `opencode`, `omp`).
 * **[sync-calendar-policy](sync-calendar-policy)**: Syncs daily schedule blocks from Google Calendar via `gws`.

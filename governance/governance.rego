@@ -22,28 +22,28 @@ deny contains msg if {
 
 # =========================================================================
 # 2. SINGLE SESSION LIMIT (Max 1 session of 120 minutes / 2 hours per day)
-# Only agentic usage, tool calling, and vibe-coding count.
-# Normal AI usage (chat, advice, explanations) does not count against this.
+# Counts ALL AI usage: agentic tool execution, vibe coding, AND browser AI.
 # =========================================================================
 deny contains msg if {
     session_minutes := input.session_minutes
     session_minutes > 120
-    msg := sprintf("HEALTH-002: Daily session limit reached (%d min / 120 min max). You have completed your 2-hour agentic session for today. Step away and rest.", [session_minutes])
+    msg := sprintf("HEALTH-002: Daily AI session limit reached (%d min / 120 min max) — agentic + browser AI combined. You have used your 2-hour AI session for today. Step away and rest.", [session_minutes])
 }
 
 deny contains msg if {
     input.sessions_completed >= 1
     not input.in_active_session
-    msg := "HEALTH-002B: Single daily session limit reached. Policy allows only a single agentic / vibe-coding session (max 2 hours) per day. Today's session has already concluded."
+    msg := "HEALTH-002B: Single daily AI session limit reached. Policy allows only a single AI session (max 2 hours) per day, across agentic AND browser AI usage. Today's session has already concluded."
 }
 
 # =========================================================================
-# 3. DAILY AGENTIC & VIBE-CODING CAP (Max 120 min / 2 hours per day)
+# 3. DAILY AI CAP (Max 120 min / 2 hours per day)
+# Counts ALL AI usage: agentic + vibe-coding + browser AI.
 # =========================================================================
 deny contains msg if {
     daily_minutes := input.daily_project_minutes
     daily_minutes > 120
-    msg := sprintf("HEALTH-003: Daily agentic & vibe-coding cap exceeded (%d min / 120 min max). Agentic tools blocked until 7:00 AM reset.", [daily_minutes])
+    msg := sprintf("HEALTH-003: Daily AI cap exceeded (%d min / 120 min max) — agentic + browser AI combined. All AI tools blocked until 7:00 AM reset.", [daily_minutes])
 }
 
 # =========================================================================

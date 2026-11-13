@@ -23,9 +23,9 @@ PRACTICE_DIR = os.path.expanduser("~/code/practice")
 
 def is_agentic_entry(entry):
     """
-    Identifies agentic tool usage.
-    Normal conversational AI usage (prompts, questions, explanations without tool calls)
-    does NOT count. Only actual tool executions, tool calls, and generic tool steps count.
+    Identifies agentic tool usage from Antigravity transcripts.
+    (Conversational AI via the browser counts separately as dwell segments,
+    reconstructed from Chrome history.)
     """
     tool_calls = entry.get("tool_calls")
     if tool_calls and isinstance(tool_calls, list) and len(tool_calls) > 0:
@@ -35,11 +35,30 @@ def is_agentic_entry(entry):
         return True
     return False
 
+def get_browser_ai_segments():
+    """Return [(start_unix, end_unix), ...] of browser AI usage for the current governance day.
+    Reuses the taskflow tracker's dwell reconstruction (single source of truth).
+    Returns [] if the tracker is unavailable.
+    """
+    try:
+        tracker_path = os.path.join(BASE_DIR, "..", "tracker", "tracker.py")
+        if not os.path.exists(tracker_path):
+            return []
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("taskflow_tracker", tracker_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.get_ai_segments() or []
+    except Exception as e:
+        print(f"⚠️  Browser AI usage source unavailable: {e}", file=sys.stderr)
+        return []
+
 def get_session_and_daily_minutes(activity_type="deep_work"):
     """
-    Computes real active session duration and daily usage for agentic tool use and vibe coding.
-    - Normal conversational AI usage does NOT count.
-    - Only agentic tool calls/executions and vibe-coding Git commits count.
+    Computes real active session duration and daily usage for ALL AI usage:
+    - Agentic tool calls/executions (Antigravity transcripts),
+    - Vibe-coding Git commits,
+    - Browser-based AI chat & assistants (Chrome history dwell reconstruction).
     - Single session of max 120 minutes (2 hours) per day.
     - A session ends after a true 30+ minute gap.
     - Daily budget operates on a 7:00 AM boundary (not calendar midnight).
@@ -54,7 +73,7 @@ def get_session_and_daily_minutes(activity_type="deep_work"):
         gov_start = (now - timedelta(days=1)).replace(hour=7, minute=0, second=0, microsecond=0)
     gov_start_ts = int(gov_start.timestamp())
 
-    all_timestamps = []
+    events = []  # unified event stream: (start_ts, end_ts)
 
     # 1. Gather Git commit timestamps if activity_type is vibe_coding
     if activity_type == "vibe_coding":
@@ -66,7 +85,11 @@ def get_session_and_daily_minutes(activity_type="deep_work"):
                 text=True
             ).strip()
             if out:
-                all_timestamps.extend([int(t) for t in out.splitlines() if t.strip()])
+                for t in out.splitlines():
+                    if t.strip():
+                        ts = int(t)
+                        if ts >= gov_start_ts:
+                            events.append((ts, ts))
         except Exception:
             pass
 
@@ -88,38 +111,46 @@ def get_session_and_daily_minutes(activity_type="deep_work"):
                                 dt = datetime.fromisoformat(cat.replace("Z", "+00:00"))
                                 ts = int(dt.timestamp())
                                 if ts >= gov_start_ts:
-                                    all_timestamps.append(ts)
+                                    events.append((ts, ts))
                     except Exception:
                         pass
     except Exception:
         pass
 
-    all_timestamps = sorted(list(set(all_timestamps)))
+    # 3. Browser-based AI usage (dwell segments reconstructed from Chrome history)
+    try:
+        for s, e in get_browser_ai_segments():
+            if e >= gov_start_ts:
+                events.append((max(s, gov_start_ts), e))
+    except Exception:
+        pass
 
-    if not all_timestamps:
+    events = sorted(set(events))
+
+    if not events:
         return 0, 0, None, 0, False
 
     SESSION_GAP_SECONDS = 30 * 60
 
-    # Cluster timestamps into sessions separated by > 30 min
+    # Cluster events (points or dwell segments) into sessions separated by > 30 min
     sessions = []
-    current_session = [all_timestamps[0]]
-    for t in all_timestamps[1:]:
-        if (t - current_session[-1]) > SESSION_GAP_SECONDS:
-            sessions.append(current_session)
-            current_session = [t]
+    cur_start, cur_end = events[0]
+    for s, e in events[1:]:
+        if (s - cur_end) > SESSION_GAP_SECONDS:
+            sessions.append((cur_start, cur_end))
+            cur_start, cur_end = s, e
         else:
-            current_session.append(t)
-    sessions.append(current_session)
+            cur_end = max(cur_end, e)
+    sessions.append((cur_start, cur_end))
 
     # Determine if the most recent session is currently active (within 30m of now)
-    last_event = sessions[-1][-1]
+    last_event = sessions[-1][1]
     if (now_ts - last_event) <= SESSION_GAP_SECONDS:
         in_active_session = True
         active_session_start = sessions[-1][0]
         session_minutes = max(1, (now_ts - active_session_start) // 60)
         sessions_completed = len(sessions) - 1
-        last_session_end = sessions[-2][-1] if len(sessions) > 1 else None
+        last_session_end = sessions[-2][1] if len(sessions) > 1 else None
     else:
         in_active_session = False
         session_minutes = 0
@@ -128,11 +159,11 @@ def get_session_and_daily_minutes(activity_type="deep_work"):
 
     # Calculate total daily minutes spent across sessions
     daily_minutes = 0
-    for i, s in enumerate(sessions):
+    for i, (s, e) in enumerate(sessions):
         if in_active_session and i == len(sessions) - 1:
-            daily_minutes += max(1, (now_ts - s[0]) // 60)
+            daily_minutes += max(1, (now_ts - s) // 60)
         else:
-            daily_minutes += max(1, (s[-1] - s[0]) // 60)
+            daily_minutes += max(1, (e - s) // 60)
 
     return daily_minutes, session_minutes, last_session_end, sessions_completed, in_active_session
 
@@ -327,7 +358,7 @@ def main():
         RESET = "\033[0m"
 
         print(f"\n{RED}🛑 HEALTH & GOVERNANCE POLICY VIOLATION{RESET}", file=sys.stderr)
-        print(f"{YELLOW}Project: {project} | Activity: {activity_type} | Daily Minutes: {daily_minutes} | Current Time: {now.strftime('%H:%M')}{RESET}", file=sys.stderr)
+        print(f"{YELLOW}Project: {project} | Activity: {activity_type} | Total AI Minutes (agentic + browser): {daily_minutes} | Current Time: {now.strftime('%H:%M')}{RESET}", file=sys.stderr)
         for v in violations:
             print(f"  {RED}✖{RESET} {v}", file=sys.stderr)
         print(f"\n{CYAN}Take care of your health first. Rest and recovery are mandatory for high performance.{RESET}\n", file=sys.stderr)
