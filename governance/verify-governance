@@ -53,29 +53,9 @@ def get_browser_ai_segments():
         print(f"⚠️  Browser AI usage source unavailable: {e}", file=sys.stderr)
         return []
 
-def get_session_and_daily_minutes(activity_type="deep_work"):
-    """
-    Computes real active session duration and daily usage for ALL AI usage:
-    - Agentic tool calls/executions (Antigravity transcripts),
-    - Vibe-coding Git commits,
-    - Browser-based AI chat & assistants (Chrome history dwell reconstruction).
-    - Single session of max 120 minutes (2 hours) per day.
-    - A session ends after a true 30+ minute gap.
-    - Daily budget operates on a 7:00 AM boundary (not calendar midnight).
-    """
-    now = datetime.now()
-    now_ts = int(now.timestamp())
-
-    # Governance day starts at 7:00 AM; if before 7 AM, yesterday's 7 AM is the boundary
-    if now.hour >= 7:
-        gov_start = now.replace(hour=7, minute=0, second=0, microsecond=0)
-    else:
-        gov_start = (now - timedelta(days=1)).replace(hour=7, minute=0, second=0, microsecond=0)
-    gov_start_ts = int(gov_start.timestamp())
-
-    events = []  # unified event stream: (start_ts, end_ts)
-
-    # 1. Gather Git commit timestamps if activity_type is vibe_coding
+def gather_git_events(activity_type, gov_start, gov_start_ts):
+    """Commit timestamps (as zero-width events) for vibe-coding activity."""
+    events = []
     if activity_type == "vibe_coding":
         try:
             today_str = gov_start.strftime("%Y-%m-%d %H:%M:%S")
@@ -92,8 +72,11 @@ def get_session_and_daily_minutes(activity_type="deep_work"):
                             events.append((ts, ts))
         except Exception:
             pass
+    return events
 
-    # 2. Gather Antigravity conversation transcript timestamps for AGENTIC / TOOL USE only
+def gather_antigravity_events(gov_start_ts):
+    """Timestamps of agentic tool calls (as zero-width events)."""
+    events = []
     try:
         import glob
         brain_dir = os.path.expanduser("~/.gemini/antigravity-cli/brain")
@@ -116,23 +99,31 @@ def get_session_and_daily_minutes(activity_type="deep_work"):
                         pass
     except Exception:
         pass
+    return events
 
-    # 3. Browser-based AI usage (dwell segments reconstructed from Chrome history)
+def gather_browser_ai_events(gov_start_ts):
+    """Browser AI usage (dwell segments) from Chrome history."""
+    events = []
     try:
         for s, e in get_browser_ai_segments():
             if e >= gov_start_ts:
                 events.append((max(s, gov_start_ts), e))
     except Exception:
         pass
+    return events
 
+SESSION_GAP_SECONDS = 30 * 60
+
+def cluster_events(events, now_ts):
+    """Cluster (start, end) events into sessions separated by > 30 min.
+    Returns (daily_minutes, session_minutes, last_session_end,
+             sessions_completed, in_active_session).
+    """
     events = sorted(set(events))
 
     if not events:
         return 0, 0, None, 0, False
 
-    SESSION_GAP_SECONDS = 30 * 60
-
-    # Cluster events (points or dwell segments) into sessions separated by > 30 min
     sessions = []
     cur_start, cur_end = events[0]
     for s, e in events[1:]:
@@ -143,7 +134,6 @@ def get_session_and_daily_minutes(activity_type="deep_work"):
             cur_end = max(cur_end, e)
     sessions.append((cur_start, cur_end))
 
-    # Determine if the most recent session is currently active (within 30m of now)
     last_event = sessions[-1][1]
     if (now_ts - last_event) <= SESSION_GAP_SECONDS:
         in_active_session = True
@@ -157,7 +147,6 @@ def get_session_and_daily_minutes(activity_type="deep_work"):
         sessions_completed = len(sessions)
         last_session_end = last_event
 
-    # Calculate total daily minutes spent across sessions
     daily_minutes = 0
     for i, (s, e) in enumerate(sessions):
         if in_active_session and i == len(sessions) - 1:
@@ -166,6 +155,24 @@ def get_session_and_daily_minutes(activity_type="deep_work"):
             daily_minutes += max(1, (e - s) // 60)
 
     return daily_minutes, session_minutes, last_session_end, sessions_completed, in_active_session
+
+def get_session_and_daily_minutes(activity_type="deep_work"):
+    now = datetime.now()
+    now_ts = int(now.timestamp())
+
+    # Governance day starts at 7:00 AM; if before 7 AM, yesterday's 7 AM is the boundary
+    if now.hour >= 7:
+        gov_start = now.replace(hour=7, minute=0, second=0, microsecond=0)
+    else:
+        gov_start = (now - timedelta(days=1)).replace(hour=7, minute=0, second=0, microsecond=0)
+    gov_start_ts = int(gov_start.timestamp())
+
+    events = []
+    events += gather_git_events(activity_type, gov_start, gov_start_ts)
+    events += gather_antigravity_events(gov_start_ts)
+    events += gather_browser_ai_events(gov_start_ts)
+
+    return cluster_events(events, now_ts)
 
 def check_leetcode_today():
     import urllib.request
