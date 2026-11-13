@@ -27,6 +27,12 @@ install: all
 	cp $(BUILD_DIR)/*.so $(LIB_DIR)/
 	ln -sf $(CURDIR)/bin/taskflow $(BIN_DIR)/taskflow
 	ln -sf $(CURDIR)/bin/taskflow $(BIN_DIR)/agent
+	ln -sf $(CURDIR)/governance/verify-governance $(BIN_DIR)/verify-governance
+	ln -sf $(CURDIR)/governance/agent-governance-hook $(BIN_DIR)/agent-governance-hook
+	ln -sf $(CURDIR)/governance/universal-governance-wrapper $(BIN_DIR)/universal-governance-wrapper
+	ln -sf $(CURDIR)/governance/sync-calendar-policy $(BIN_DIR)/sync-calendar-policy
+	ln -sf $(CURDIR)/governance/log-practice-event $(BIN_DIR)/log-practice-event
+	ln -sf $(CURDIR)/governance/log-session-event $(BIN_DIR)/log-session-event
 
 clean:
 	rm -rf $(BUILD_DIR)

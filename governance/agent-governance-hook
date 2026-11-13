@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import sys
+
+BASE_DIR = os.path.dirname(os.path.realpath(__file__))
+VERIFY_BIN = os.path.join(BASE_DIR, "verify-governance")
+if not os.path.exists(VERIFY_BIN):
+    VERIFY_BIN = os.path.expanduser("~/.local/bin/verify-governance")
+
+def main():
+    # Run verify-governance check unconditionally
+    if os.path.exists(VERIFY_BIN):
+        try:
+            res = subprocess.run(
+                [VERIFY_BIN],
+                capture_output=True,
+                text=True
+            )
+            if res.returncode != 0:
+                err_msg = res.stderr.strip() if res.stderr and res.stderr.strip() else ""
+                reason = err_msg or "DETERMINISTIC TOTAL LOCKOUT: All agent tools are completely blocked by governance policy. You have exceeded your limits. Step away from the computer and rest."
+                print(json.dumps({
+                    "decision": "deny",
+                    "reason": reason
+                }))
+                return 0
+        except Exception:
+            pass
+
+    print(json.dumps({"decision": "allow"}))
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

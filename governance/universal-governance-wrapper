@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Universal Governance Wrapper - intercepts agent binaries at startup
+# Calls verify-governance before launching any agent tool
+
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+VERIFY_BIN="$SCRIPT_DIR/verify-governance"
+
+if [ ! -x "$VERIFY_BIN" ]; then
+    VERIFY_BIN="$HOME/.local/bin/verify-governance"
+fi
+
+if [ ! -x "$VERIFY_BIN" ]; then
+    echo "Governance wrapper: verify-governance not found at $VERIFY_BIN" >&2
+    exit 0  # fail open for wrapper
+fi
+
+result=$(python3 "$VERIFY_BIN" 2>/dev/null)
+rc=$?
+
+if [ $rc -ne 0 ]; then
+    echo "GOVERNANCE LOCKOUT: Agent execution denied by governance policy." >&2
+    echo "Reason: $result" >&2
+    echo "4-hour recovery buffer or daily budget not met. Step away from the computer and rest." >&2
+    exit 1
+fi
+
+# Now exec the actual command
+shift  # remove the verify call from args
+exec "$@"

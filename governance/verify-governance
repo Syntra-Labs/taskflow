@@ -1,0 +1,339 @@
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import sys
+import time
+from datetime import datetime, timedelta, timezone
+
+OPA_BIN = os.path.expanduser("~/.local/bin/opa")
+BASE_DIR = os.path.dirname(os.path.realpath(__file__))
+TASKFLOW_POLICY = os.path.join(BASE_DIR, "governance.rego")
+POLICY_FILE = TASKFLOW_POLICY if os.path.exists(TASKFLOW_POLICY) else os.path.expanduser("~/.config/policy/governance.rego")
+
+LEETCODE_USERNAME = "wwwportal"
+CODEFORCES_HANDLES = ["YassineAmraoui", "yassineamraoui", "wwwportal", "yamraoui2001"]
+DEEPML_USER_ID = "HEU3UZBdY0cejGFHpYyWBlLnZDk1"
+
+CACHE_DIR = os.path.expanduser("~/.config/taskflow")
+os.makedirs(CACHE_DIR, exist_ok=True)
+DEEPML_STATE_FILE = os.path.join(CACHE_DIR, "deepml_state.json")
+DAILY_CACHE_FILE = os.path.join(CACHE_DIR, "daily_cache.json")
+PRACTICE_DIR = os.path.expanduser("~/code/practice")
+
+def is_agentic_entry(entry):
+    """
+    Identifies agentic tool usage.
+    Normal conversational AI usage (prompts, questions, explanations without tool calls)
+    does NOT count. Only actual tool executions, tool calls, and generic tool steps count.
+    """
+    tool_calls = entry.get("tool_calls")
+    if tool_calls and isinstance(tool_calls, list) and len(tool_calls) > 0:
+        return True
+    step_type = entry.get("type")
+    if step_type in ("TOOL_CALL", "TOOL_RESPONSE", "GENERIC"):
+        return True
+    return False
+
+def get_session_and_daily_minutes(activity_type="deep_work"):
+    """
+    Computes real active session duration and daily usage for agentic tool use and vibe coding.
+    - Normal conversational AI usage does NOT count.
+    - Only agentic tool calls/executions and vibe-coding Git commits count.
+    - Single session of max 120 minutes (2 hours) per day.
+    - A session ends after a true 30+ minute gap.
+    - Daily budget operates on a 7:00 AM boundary (not calendar midnight).
+    """
+    now = datetime.now()
+    now_ts = int(now.timestamp())
+
+    # Governance day starts at 7:00 AM; if before 7 AM, yesterday's 7 AM is the boundary
+    if now.hour >= 7:
+        gov_start = now.replace(hour=7, minute=0, second=0, microsecond=0)
+    else:
+        gov_start = (now - timedelta(days=1)).replace(hour=7, minute=0, second=0, microsecond=0)
+    gov_start_ts = int(gov_start.timestamp())
+
+    all_timestamps = []
+
+    # 1. Gather Git commit timestamps if activity_type is vibe_coding
+    if activity_type == "vibe_coding":
+        try:
+            today_str = gov_start.strftime("%Y-%m-%d %H:%M:%S")
+            out = subprocess.check_output(
+                ["git", "log", f"--since={today_str}", "--reverse", "--format=%at"],
+                stderr=subprocess.DEVNULL,
+                text=True
+            ).strip()
+            if out:
+                all_timestamps.extend([int(t) for t in out.splitlines() if t.strip()])
+        except Exception:
+            pass
+
+    # 2. Gather Antigravity conversation transcript timestamps for AGENTIC / TOOL USE only
+    try:
+        import glob
+        brain_dir = os.path.expanduser("~/.gemini/antigravity-cli/brain")
+        transcripts = glob.glob(os.path.join(brain_dir, "*", ".system_generated", "logs", "transcript.jsonl"))
+        active_transcripts = [t for t in transcripts if os.path.getmtime(t) >= gov_start_ts]
+        for t_file in active_transcripts:
+            with open(t_file, "r") as f:
+                for line in f:
+                    if not line.strip(): continue
+                    try:
+                        entry = json.loads(line)
+                        if is_agentic_entry(entry):
+                            cat = entry.get("created_at")
+                            if cat:
+                                dt = datetime.fromisoformat(cat.replace("Z", "+00:00"))
+                                ts = int(dt.timestamp())
+                                if ts >= gov_start_ts:
+                                    all_timestamps.append(ts)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    all_timestamps = sorted(list(set(all_timestamps)))
+
+    if not all_timestamps:
+        return 0, 0, None, 0, False
+
+    SESSION_GAP_SECONDS = 30 * 60
+
+    # Cluster timestamps into sessions separated by > 30 min
+    sessions = []
+    current_session = [all_timestamps[0]]
+    for t in all_timestamps[1:]:
+        if (t - current_session[-1]) > SESSION_GAP_SECONDS:
+            sessions.append(current_session)
+            current_session = [t]
+        else:
+            current_session.append(t)
+    sessions.append(current_session)
+
+    # Determine if the most recent session is currently active (within 30m of now)
+    last_event = sessions[-1][-1]
+    if (now_ts - last_event) <= SESSION_GAP_SECONDS:
+        in_active_session = True
+        active_session_start = sessions[-1][0]
+        session_minutes = max(1, (now_ts - active_session_start) // 60)
+        sessions_completed = len(sessions) - 1
+        last_session_end = sessions[-2][-1] if len(sessions) > 1 else None
+    else:
+        in_active_session = False
+        session_minutes = 0
+        sessions_completed = len(sessions)
+        last_session_end = last_event
+
+    # Calculate total daily minutes spent across sessions
+    daily_minutes = 0
+    for i, s in enumerate(sessions):
+        if in_active_session and i == len(sessions) - 1:
+            daily_minutes += max(1, (now_ts - s[0]) // 60)
+        else:
+            daily_minutes += max(1, (s[-1] - s[0]) // 60)
+
+    return daily_minutes, session_minutes, last_session_end, sessions_completed, in_active_session
+
+def check_leetcode_today():
+    import urllib.request
+    try:
+        query = {
+            "query": "query recentSubmissions($username: String!, $limit: Int!) { recentSubmissionList(username: $username, limit: $limit) { timestamp } }",
+            "variables": {"username": LEETCODE_USERNAME, "limit": 10}
+        }
+        req = urllib.request.Request(
+            "https://leetcode.com/graphql",
+            data=json.dumps(query).encode("utf-8"),
+            headers={"Content-Type": "application/json", "User-Agent": "GovernancePolicy/1.0"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            subs = data.get("data", {}).get("recentSubmissionList", [])
+            today_date = datetime.now().date()
+            for sub in subs:
+                ts = int(sub.get("timestamp", 0))
+                sub_date = datetime.fromtimestamp(ts).date()
+                if sub_date == today_date:
+                    return True
+    except Exception:
+        pass
+    return False
+
+def check_codeforces_today():
+    import urllib.request
+    try:
+        today_date = datetime.now().date()
+        for handle in CODEFORCES_HANDLES:
+            url = f"https://codeforces.com/api/user.status?handle={handle}&from=1&count=10"
+            req = urllib.request.Request(url, headers={"User-Agent": "GovernancePolicy/1.0"})
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                if data.get("status") == "OK":
+                    for sub in data.get("result", []):
+                        ts = int(sub.get("creationTimeSeconds", 0))
+                        sub_date = datetime.fromtimestamp(ts).date()
+                        if sub_date == today_date and sub.get("verdict") == "OK":
+                            return True
+    except Exception:
+        pass
+    return False
+
+def check_deepml_today():
+    import urllib.request, re
+    try:
+        url = f"https://www.deep-ml.com/profile/{DEEPML_USER_ID}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            html = resp.read().decode("utf-8")
+        
+        m = re.search(r"(\d+)\s+problems\s+solved", html)
+        if not m:
+            return False
+        current_solved = int(m.group(1))
+        today_str = datetime.now().strftime("%Y-%m-%d")
+
+        state = {}
+        if os.path.exists(DEEPML_STATE_FILE):
+            try:
+                with open(DEEPML_STATE_FILE, "r") as f:
+                    state = json.load(f)
+            except Exception:
+                pass
+
+        last_date = state.get("last_check_date")
+        base_solved = state.get("base_solved_count", current_solved)
+
+        # If it is a new day, initialize today base count
+        if last_date != today_str:
+            state["last_check_date"] = today_str
+            state["base_solved_count"] = current_solved
+            with open(DEEPML_STATE_FILE, "w") as f:
+                json.dump(state, f)
+            return False
+
+        # If solved count increased today
+        if current_solved > base_solved:
+            return True
+    except Exception:
+        pass
+    return False
+
+def check_local_practice_today():
+    try:
+        if not os.path.exists(PRACTICE_DIR):
+            return False
+        today_date = datetime.now().date()
+        for root, _, files in os.walk(PRACTICE_DIR):
+            for f in files:
+                p = os.path.join(root, f)
+                mtime = os.path.getmtime(p)
+                if datetime.fromtimestamp(mtime).date() == today_date:
+                    return True
+    except Exception:
+        pass
+    return False
+
+def main():
+    if not os.path.exists(POLICY_FILE) or not os.path.exists(OPA_BIN):
+        return 0
+
+    project = os.path.basename(os.getcwd())
+    now = datetime.now()
+
+    # Determine activity type: deep_work vs vibe_coding
+    has_deepwork_signatures = os.path.isdir("Makefile") or os.path.isdir("tests") or os.path.isdir("src") or os.path.isdir("c_src") or os.path.isdir("vendor")
+    activity_type = "deep_work" if project == "practice" else ("vibe_coding" if not has_deepwork_signatures else "deep_work")
+
+    daily_minutes, session_minutes, session_end_timestamp, sessions_completed, in_active_session = get_session_and_daily_minutes(activity_type)
+
+    # Governance day starts at 7:00 AM (not calendar midnight)
+    if now.hour >= 7:
+        governance_day_str = now.strftime("%Y-%m-%d")
+    else:
+        # Previous calendar day but still governance day
+        governance_day_str = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+    exercises_done = 0
+
+    # Check daily cache first to avoid slow network roundtrips on every hook call
+    if os.path.exists(DAILY_CACHE_FILE):
+        try:
+            with open(DAILY_CACHE_FILE, "r") as f:
+                cdata = json.load(f)
+            if cdata.get("date") == governance_day_str and cdata.get("exercises_done"):
+                exercises_done = 1
+        except Exception:
+            pass
+
+    if not exercises_done:
+        leetcode_done = check_leetcode_today()
+        codeforces_done = check_codeforces_today()
+        deepml_done = check_deepml_today()
+        practice_done = check_local_practice_today()
+        if leetcode_done or codeforces_done or deepml_done or practice_done:
+            exercises_done = 1
+            try:
+                with open(DAILY_CACHE_FILE, "w") as f:
+                    json.dump({"date": governance_day_str, "exercises_done": True, "cached_at": int(now.timestamp())}, f)
+            except Exception:
+                pass
+
+    # Calculate minutes since last session ended (if any)
+    minutes_since_last_session_end = None
+    if session_end_timestamp:
+        minutes_since_last_session_end = int((int(now.timestamp()) - session_end_timestamp) // 60)
+
+    eval_input = {
+        "project": project,
+        "activity_type": activity_type,
+        "current_hour": now.hour,
+        "daily_project_minutes": daily_minutes,
+        "session_minutes": session_minutes,
+        "daily_exercises_done": exercises_done,
+        "timestamp": int(now.timestamp()),
+        "session_end_timestamp": session_end_timestamp,
+        "minutes_since_last_session_end": minutes_since_last_session_end,
+        "sessions_completed": sessions_completed,
+        "in_active_session": in_active_session
+    }
+
+    try:
+        cmd = [
+            OPA_BIN, "eval", "--format", "raw",
+            "--data", POLICY_FILE,
+            "--stdin-input",
+            "data.policy.governance.deny"
+        ]
+        proc = subprocess.run(
+            cmd,
+            input=json.dumps(eval_input).encode("utf-8"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True
+        )
+        raw_out = proc.stdout.decode("utf-8").strip()
+        violations = json.loads(raw_out) if raw_out else []
+    except Exception as e:
+        # If OPA evaluation fails for unexpected reason, do not fail-silent, but do not block critical work
+        print(f"⚠️  Policy engine warning: {e}", file=sys.stderr)
+        return 0
+
+    if violations:
+        RED = "\033[1;31m"
+        YELLOW = "\033[1;33m"
+        CYAN = "\033[1;36m"
+        RESET = "\033[0m"
+
+        print(f"\n{RED}🛑 HEALTH & GOVERNANCE POLICY VIOLATION{RESET}", file=sys.stderr)
+        print(f"{YELLOW}Project: {project} | Activity: {activity_type} | Daily Minutes: {daily_minutes} | Current Time: {now.strftime('%H:%M')}{RESET}", file=sys.stderr)
+        for v in violations:
+            print(f"  {RED}✖{RESET} {v}", file=sys.stderr)
+        print(f"\n{CYAN}Take care of your health first. Rest and recovery are mandatory for high performance.{RESET}\n", file=sys.stderr)
+        sys.exit(1)
+
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

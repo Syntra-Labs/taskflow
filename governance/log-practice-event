@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import sys
+import time
+from datetime import datetime, timedelta
+
+CACHE_DIR = os.path.expanduser("~/.config/taskflow")
+os.makedirs(CACHE_DIR, exist_ok=True)
+CACHE_FILE = os.path.join(CACHE_DIR, "last_logged_practice.json")
+
+def check_and_log():
+    # 1. Fetch latest submission from LeetCode
+    import urllib.request
+    try:
+        query = {
+            "query": "query recentSubmissions($username: String!, $limit: Int!) { recentSubmissionList(username: $username, limit: $limit) { title titleSlug timestamp statusDisplay lang } }",
+            "variables": {"username": "wwwportal", "limit": 1}
+        }
+        req = urllib.request.Request(
+            "https://leetcode.com/graphql",
+            data=json.dumps(query).encode("utf-8"),
+            headers={"Content-Type": "application/json", "User-Agent": "AutoLogger/1.0"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            subs = data.get("data", {}).get("recentSubmissionList", [])
+            if not subs:
+                return
+            latest = subs[0]
+            ts = int(latest.get("timestamp", 0))
+            sub_dt = datetime.fromtimestamp(ts)
+            
+            # Only care about today
+            if sub_dt.date() != datetime.now().date():
+                return
+
+            last_id = None
+            if os.path.exists(CACHE_FILE):
+                try:
+                    with open(CACHE_FILE, "r") as f:
+                        last_id = json.load(f).get("timestamp")
+                except Exception:
+                    pass
+
+            if last_id == ts:
+                return # Already logged
+
+            # Estimate block start 15 min prior
+            start_dt = sub_dt - timedelta(minutes=15)
+            start_str = start_dt.strftime("%Y-%m-%dT%H:%M:00-05:00")
+            end_str = sub_dt.strftime("%Y-%m-%dT%H:%M:00-05:00")
+
+            summary = f"LeetCode Practice: {latest.get('title')}"
+            desc = (
+                f"Deliberate practice exercise solved on LeetCode (handle: wwwportal).\n"
+                f"• Problem: {latest.get('title')}\n"
+                f"• Verdict: {latest.get('statusDisplay')}\n"
+                f"• Language: {latest.get('lang')}\n"
+                f"• Submission Time: {sub_dt.strftime('%H:%M:%S EST')}"
+            )
+
+            event_data = {
+                "summary": summary,
+                "description": desc,
+                "start": {"dateTime": start_str, "timeZone": "America/Toronto"},
+                "end": {"dateTime": end_str, "timeZone": "America/Toronto"}
+            }
+
+            # Insert via gws
+            cmd = ["gws", "calendar", "events", "insert", "--params", json.dumps({"calendarId": "primary"}), "--body", json.dumps(event_data)]
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode == 0:
+                os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+                with open(CACHE_FILE, "w") as f:
+                    json.dump({"timestamp": ts, "title": latest.get('title')}, f)
+                print(f"✅ Auto-logged practice to calendar: {summary}")
+    except Exception as e:
+        print(f"Error checking practice: {e}", file=sys.stderr)
+
+if __name__ == "__main__":
+    check_and_log()

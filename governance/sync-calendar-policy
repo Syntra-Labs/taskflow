@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import time
+from datetime import datetime, timezone
+
+CACHE_DIR = os.path.expanduser("~/.config/taskflow")
+os.makedirs(CACHE_DIR, exist_ok=True)
+SCHEDULE_CACHE = os.path.join(CACHE_DIR, "today_schedule.json")
+NOW = datetime.now()
+TODAY_STR = NOW.strftime("%Y-%m-%d")
+
+def fetch_calendar_blocks():
+    # Only fetch once every 15 minutes unless cache is from an older day
+    if os.path.exists(SCHEDULE_CACHE):
+        try:
+            with open(SCHEDULE_CACHE, "r") as f:
+                data = json.load(f)
+            if data.get("date") == TODAY_STR and (NOW.timestamp() - data.get("synced_at", 0)) < 900:
+                return data
+        except Exception:
+            pass
+
+    time_min = f"{TODAY_STR}T00:00:00-05:00"
+    time_max = f"{TODAY_STR}T23:59:59-05:00"
+    params = json.dumps({
+        "calendarId": "primary",
+        "timeMin": time_min,
+        "timeMax": time_max,
+        "singleEvents": True,
+        "orderBy": "startTime"
+    })
+
+    try:
+        res = subprocess.run(
+            ["gws", "calendar", "events", "list", "--params", params],
+            capture_output=True,
+            text=True,
+            timeout=8
+        )
+        if res.returncode == 0:
+            events_data = json.loads(res.stdout)
+            blocks = []
+            for item in events_data.get("items", []):
+                summary = item.get("summary", "")
+                start = item.get("start", {}).get("dateTime")
+                end = item.get("end", {}).get("dateTime")
+                if not start or not end:
+                    continue
+
+                # Classify block
+                s_lower = summary.lower()
+                b_type = "DEEP_WORK"
+                if any(w in s_lower for w in ["practice", "leetcode", "codeforces", "deep-ml", "exercise"]):
+                    b_type = "PRACTICE"
+                elif any(w in s_lower for w in ["break", "lunch", "walk", "rest", "off", "buffer"]):
+                    b_type = "REST"
+
+                blocks.append({
+                    "summary": summary,
+                    "type": b_type,
+                    "start": start,
+                    "end": end,
+                    "start_ts": int(datetime.fromisoformat(start).timestamp()),
+                    "end_ts": int(datetime.fromisoformat(end).timestamp())
+                })
+
+            cache_data = {
+                "date": TODAY_STR,
+                "synced_at": int(NOW.timestamp()),
+                "blocks": blocks
+            }
+            os.makedirs(os.path.dirname(SCHEDULE_CACHE), exist_ok=True)
+            with open(SCHEDULE_CACHE, "w") as f:
+                json.dump(cache_data, f)
+            return cache_data
+    except Exception:
+        pass
+
+    return {"date": TODAY_STR, "synced_at": int(NOW.timestamp()), "blocks": []}
+
+def get_current_block_type():
+    data = fetch_calendar_blocks()
+    now_ts = int(NOW.timestamp())
+    for b in data.get("blocks", []):
+        if b["start_ts"] <= now_ts < b["end_ts"]:
+            return b["type"], b["summary"]
+    return "FREE_TIME", "No active scheduled block"
+
+if __name__ == "__main__":
+    b_type, b_summary = get_current_block_type()
+    print(f"Current Block: {b_type} ({b_summary})")

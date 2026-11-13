@@ -4,3 +4,6 @@ build/
 __pycache__/
 *.pyc
 .synvim/
+# Governance local caches & state
+governance/*.json
+governance/.cache/

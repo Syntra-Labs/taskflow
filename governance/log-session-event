@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import sys
+import time
+from datetime import datetime, timedelta
+
+def get_recent_commits():
+    try:
+        # Check commits from today
+        today = datetime.now().strftime("%Y-%m-%d 00:00:00")
+        out = subprocess.check_output(
+            ["git", "log", f"--since={today}", "--format=%at|%s", "--reverse"],
+            stderr=subprocess.DEVNULL,
+            text=True
+        ).strip()
+        if not out:
+            return []
+        commits = []
+        for line in out.splitlines():
+            if "|" in line:
+                ts_str, msg = line.split("|", 1)
+                commits.append({"ts": int(ts_str), "msg": msg.strip()})
+        return commits
+    except Exception:
+        return []
+
+def main():
+    repo_name = os.path.basename(os.getcwd())
+    commits = get_recent_commits()
+    now = datetime.now()
+
+    if commits:
+        first_ts = commits[0]["ts"]
+        last_ts = max(commits[-1]["ts"], int(now.timestamp()))
+        start_dt = datetime.fromtimestamp(first_ts)
+        end_dt = datetime.fromtimestamp(last_ts)
+        # Cap minimum span to 20m if fast commits
+        if (end_dt - start_dt).total_seconds() < 1200:
+            start_dt = end_dt - timedelta(minutes=25)
+        
+        bullet_points = "\n".join([f"• {c['msg']}" for c in commits[-5:]])
+        desc = f"Deep Work sprint in {repo_name}.\n\nRecent Commits:\n{bullet_points}"
+    else:
+        # Fallback to last 60 minutes
+        end_dt = now
+        start_dt = now - timedelta(minutes=60)
+        desc = f"Deep Work focus session in {repo_name}."
+
+    start_str = start_dt.strftime("%Y-%m-%dT%H:%M:00-05:00")
+    end_str = end_dt.strftime("%Y-%m-%dT%H:%M:00-05:00")
+    summary = f"Deep Work: {repo_name}"
+
+    event_data = {
+        "summary": summary,
+        "description": desc,
+        "start": {"dateTime": start_str, "timeZone": "America/Toronto"},
+        "end": {"dateTime": end_str, "timeZone": "America/Toronto"}
+    }
+
+    cmd = [
+        "gws", "calendar", "events", "insert",
+        "--params", json.dumps({"calendarId": "primary"}),
+        "--body", json.dumps(event_data)
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode == 0:
+        print(f"✅ Logged to Google Calendar: {summary} ({start_dt.strftime('%H:%M')} - {end_dt.strftime('%H:%M')})")
+    else:
+        print(f"❌ Failed to log: {res.stderr}", file=sys.stderr)
+
+if __name__ == "__main__":
+    main()

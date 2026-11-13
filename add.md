@@ -1,0 +1,1 @@
+I have to add all ai usage to my daily ai usage governance policy as code limits because I keep using it and I can't stop. All ai means including any ai used throught the browser, not just the cli or a desktop application.
