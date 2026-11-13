@@ -260,26 +260,44 @@ def check_deepml_today():
     return False
 
 def check_local_practice_today():
-    """Count a file in ~/code/practice as practice only if it looks like actual code
-    (not a README, note, or accidental touch). Must be a source file modified today."""
-    CODE_EXTENSIONS = {
-        ".py", ".rs", ".go", ".cpp", ".c", ".java", ".js", ".ts",
-        ".rb", ".kt", ".swift", ".cs", ".ml", ".hs", ".ex", ".exs",
-        ".scala", ".clj", ".r", ".jl", ".lua", ".sh",
-    }
+    """A local practice session counts only when ~/code/practice has a git commit
+    since governance-day start (07:00) that includes at least one *_test.cpp file.
+
+    The practice pre-commit hook guarantees that such a commit can only land if
+    every staged test compiled AND exited 0 — so the commit is proof of a completed,
+    verified solution.
+    """
     try:
         if not os.path.exists(PRACTICE_DIR):
             return False
-        today_date = datetime.now().date()
-        for root, _, files in os.walk(PRACTICE_DIR):
-            for f in files:
-                ext = os.path.splitext(f)[1].lower()
-                if ext not in CODE_EXTENSIONS:
-                    continue
-                p = os.path.join(root, f)
-                mtime = os.path.getmtime(p)
-                if datetime.fromtimestamp(mtime).date() == today_date:
-                    return True
+
+        # Confirm it is a git repo
+        probe = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=PRACTICE_DIR, capture_output=True, text=True
+        )
+        if probe.returncode != 0:
+            return False
+
+        # Governance day starts at 07:00
+        now = datetime.now()
+        if now.hour >= 7:
+            gov_start = now.replace(hour=7, minute=0, second=0, microsecond=0)
+        else:
+            gov_start = (now - timedelta(days=1)).replace(hour=7, minute=0, second=0, microsecond=0)
+        since_str = gov_start.strftime("%Y-%m-%dT%H:%M:%S")
+
+        # List files touched in commits since governance day start
+        log = subprocess.run(
+            ["git", "log", f"--since={since_str}", "--name-only", "--format="],
+            cwd=PRACTICE_DIR, capture_output=True, text=True
+        )
+        if log.returncode != 0:
+            return False
+
+        for line in log.stdout.splitlines():
+            if line.strip().endswith("_test.cpp"):
+                return True
     except Exception:
         pass
     return False
