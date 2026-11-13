@@ -85,3 +85,13 @@ writesonic.com
 chat.com
 meta.ai
 metaai.com
+
+# --- AI gateways / routers (one API key reaches every model) ---
+openrouter.ai
+openrouter.app
+ai21.com
+ai21.ai
+inference.hf.co
+
+# --- OpenCode (tooling/agent platform) ---
+opencode.ai

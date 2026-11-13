@@ -1,0 +1,9 @@
+[Unit]
+Description=Taskflow AI sinkhole enforcer (flips DNS based on daily AI budget verdict)
+Documentation=file:///home/yassine/code/taskflow/governance/network-lockdown/README.md
+After=taskflow-dnsmasq.service network-online.target
+Wants=taskflow-dnsmasq.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/taskflow-ai-sink enforce

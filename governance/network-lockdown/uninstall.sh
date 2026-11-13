@@ -20,10 +20,16 @@ rm -rf /etc/taskflow
 
 echo "== removing helper + sudoers entry"
 rm -f /usr/local/sbin/taskflow-ai-window
+rm -f /usr/local/sbin/taskflow-ai-sink
 rm -f /etc/sudoers.d/taskflow-ai-window
 
-echo "== removing state dir"
-rm -rf /var/lib/taskflow
+echo "== removing budget-enforcer units + state"
+systemctl disable --now taskflow-ai-sink.timer 2>/dev/null || true
+systemctl disable --now taskflow-ai-sink.service 2>/dev/null || true
+rm -f /etc/systemd/system/taskflow-ai-sink.service /etc/systemd/system/taskflow-ai-sink.timer
+
+echo "== removing logs + state dir"
+rm -rf /var/lib/taskflow /var/log/taskflow
 
 echo "== restoring /etc/resolv.conf handling + NetworkManager"
 rm -f /etc/NetworkManager/conf.d/90-taskflow-dns.conf

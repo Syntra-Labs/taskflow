@@ -396,6 +396,44 @@ def ai_window_eligible():
         "as_of": int(now.timestamp())
     }))
 
+def ai_budget_open():
+    """Machine-readable daily-budget verdict for the sinkhole enforcer.
+    Used by /usr/local/sbin/taskflow-ai-sink (root, run by systemd timer every minute).
+    Prints JSON; always exits 0. Semantics: AI is reachable whenever the daily
+    allowance remains — practice done, not in curfew, under the 120-minute cap,
+    and (one session per day) not already concluded. No command is required.
+    """
+    now = datetime.now()
+    reasons = []
+
+    daily_minutes, session_minutes, session_end_timestamp, sessions_completed, in_active_session = get_session_and_daily_minutes("deep_work")
+
+    # CURFEW — before 07:00 or after 23:00
+    if now.hour >= 23 or now.hour < 7:
+        reasons.append(f"HEALTH-001: curfew ({now.hour}:00)")
+
+    # PRACTICE FIRST
+    if not exercises_done_today():
+        reasons.append("PRACTICE-001: daily deliberate practice not completed")
+
+    # DAILY CAP
+    if daily_minutes >= 120:
+        reasons.append(f"HEALTH-003: daily cap reached ({daily_minutes} min / 120 min)")
+
+    # SINGLE SESSION PER DAY — only when NOT mid-session
+    if sessions_completed >= 1 and not in_active_session:
+        reasons.append("HEALTH-002B: today's single AI session has already concluded")
+
+    print(json.dumps({
+        "open": len(reasons) == 0,
+        "reasons": reasons,
+        "daily_ai_minutes": daily_minutes,
+        "sessions_completed": sessions_completed,
+        "in_active_session": in_active_session,
+        "session_minutes": session_minutes,
+        "as_of": int(now.timestamp())
+    }))
+
 def main():
     if not os.path.exists(OPA_BIN):
         print("🛑 Policy engine error — failing closed: OPA binary not found at ~/.local/bin/opa", file=sys.stderr)
@@ -480,5 +518,8 @@ def main():
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--check-ai-window":
         ai_window_eligible()
+        sys.exit(0)
+    if len(sys.argv) > 1 and sys.argv[1] == "--check-ai-budget":
+        ai_budget_open()
         sys.exit(0)
     sys.exit(main())
