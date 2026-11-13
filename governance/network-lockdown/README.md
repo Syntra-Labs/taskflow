@@ -151,3 +151,8 @@ taskflow-ai-sink status         # budget mode: current state + live verdict
   install-time check only verified the sinkhole side (0.0.0.0), never that general
   DNS still worked. Fixed both; verification now **auto-rolls back** via
   `uninstall.sh` if google.com can't be resolved after install.
+
+- **Postmortem (2026-11-13):** first budget-mode install deployed and the
+  sinkhole flip logged, but fresh AI domains still resolved — SIGHUP did not
+  re-read the config and the install never probed for the sinkhole effect.
+  Fixed: restart on flip + closed-verdict post-install probe (auto-rollback).
