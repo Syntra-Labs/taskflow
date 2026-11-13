@@ -260,12 +260,22 @@ def check_deepml_today():
     return False
 
 def check_local_practice_today():
+    """Count a file in ~/code/practice as practice only if it looks like actual code
+    (not a README, note, or accidental touch). Must be a source file modified today."""
+    CODE_EXTENSIONS = {
+        ".py", ".rs", ".go", ".cpp", ".c", ".java", ".js", ".ts",
+        ".rb", ".kt", ".swift", ".cs", ".ml", ".hs", ".ex", ".exs",
+        ".scala", ".clj", ".r", ".jl", ".lua", ".sh",
+    }
     try:
         if not os.path.exists(PRACTICE_DIR):
             return False
         today_date = datetime.now().date()
         for root, _, files in os.walk(PRACTICE_DIR):
             for f in files:
+                ext = os.path.splitext(f)[1].lower()
+                if ext not in CODE_EXTENSIONS:
+                    continue
                 p = os.path.join(root, f)
                 mtime = os.path.getmtime(p)
                 if datetime.fromtimestamp(mtime).date() == today_date:
@@ -343,8 +353,12 @@ def ai_window_eligible():
     }))
 
 def main():
-    if not os.path.exists(POLICY_FILE) or not os.path.exists(OPA_BIN):
-        return 0
+    if not os.path.exists(OPA_BIN):
+        print("🛑 Policy engine error — failing closed: OPA binary not found at ~/.local/bin/opa", file=sys.stderr)
+        sys.exit(1)
+    if not os.path.exists(POLICY_FILE):
+        print("🛑 Policy engine error — failing closed: governance.rego not found", file=sys.stderr)
+        sys.exit(1)
 
     project = os.path.basename(os.getcwd())
     now = datetime.now()
