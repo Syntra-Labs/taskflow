@@ -101,6 +101,31 @@ def gather_antigravity_events(gov_start_ts):
         pass
     return events
 
+def gather_opencode_events(gov_start_ts):
+    """Timestamps of OpenCode agent activity (all non-user messages, as zero-width events).
+
+    Reads ~/.local/share/opencode/opencode.db read-only (WAL mode supports
+    concurrent readers). Message *content* is never read or logged — only
+    timestamps. In a user's OpenCode workflow this covers this very session.
+    """
+    events = []
+    try:
+        import sqlite3
+        db = os.path.expanduser("~/.local/share/opencode/opencode.db")
+        if not os.path.exists(db):
+            return events
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        rows = conn.execute(
+            "SELECT time_created FROM session_message WHERE type != 'user' AND time_created >= ?",
+            (gov_start_ts * 1000,)  # stored in milliseconds
+        ).fetchall()
+        conn.close()
+        for (ts_ms,) in rows:
+            events.append((int(ts_ms // 1000), int(ts_ms // 1000)))
+    except Exception as e:
+        print(f"⚠️  OpenCode usage source unavailable: {e}", file=sys.stderr)
+    return events
+
 def gather_browser_ai_events(gov_start_ts):
     """Browser AI usage (dwell segments) from Chrome history."""
     events = []
@@ -170,6 +195,7 @@ def get_session_and_daily_minutes(activity_type="deep_work"):
     events = []
     events += gather_git_events(activity_type, gov_start, gov_start_ts)
     events += gather_antigravity_events(gov_start_ts)
+    events += gather_opencode_events(gov_start_ts)
     events += gather_browser_ai_events(gov_start_ts)
 
     return cluster_events(events, now_ts)
