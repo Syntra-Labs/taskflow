@@ -5,10 +5,10 @@
 # MODES:
 #   budget  (DEFAULT): no command exists to "enable" AI. A root systemd timer
 #                     runs taskflow-ai-sink every 60s; it reads the governance
-#                     verdict (practice done? under 120-min cap? single-session
-#                     rule satisfied? not curfew?) and flips DNS accordingly.
-#                     AI works while you have budget, dies when you run out —
-#                     automatically; at 07:00 the day resets.
+#                     verdict (practice done? two-block budget — 60 min, 2h silence,
+#                     60 min? not curfew?) and flips DNS accordingly.
+#                     AI works while your block has minutes left and goes silent
+#                     mid-cooldown — automatically; at 07:00 the day resets.
 #   window  (legacy):  AI is DNS-sinkholed ALWAYS. The ONLY way to use AI is
 #                     `sudo taskflow-ai-window open` — policy decides, and the
 #                     window force-closes after 120 minutes.
@@ -193,8 +193,9 @@ fi
 echo "== [9/9] done."
 if [[ "$MODE" == "budget" ]]; then
   echo "  AI hereafter flips automatically with your daily budget — NO command to enable it."
-  echo "  Opens when:  practice done today AND under the 120-min cap AND today's single"
-  echo "              session has not concluded AND not in curfew (23:00-07:00)."
+  echo "  Opens when:  practice done today AND not in curfew (23:00-07:00) AND either"
+  echo "              block 1 has minutes left (<60) or block 2 opened after"
+  echo "              120 minutes with zero AI events (60..120 spent)."
   echo "  Close now:   sudo taskflow-ai-sink close   (emergency stop)"
   echo "  Status:      taskflow-ai-sink status"
 else

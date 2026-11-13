@@ -2,8 +2,9 @@
 
 **Default mode: `budget` — you never run a command to "enable" AI. It just works while
 your daily allowance lasts, then stops working.** AI hosts resolve to `0.0.0.0` / `::`
-automatically when the budget is spent (or practice isn't done yet today, or it's curfew,
-or today's single AI session has concluded), and resolve again when the day resets.
+automatically when the budget is spent (first 60-minute block spent and the 2-hour
+zero-AI cooldown hasn't elapsed, or practice isn't done yet, or it's curfew), and
+resolve again once the cooldown elapses (second block) or the day resets at 07:00.
 
 This is the local half of the lockdown (option **B** + the time gate of option **C**).
 The network-side half — so this can't be bypassed from outside the OS — is the
@@ -18,7 +19,7 @@ system DNS. Read `install.sh` first (it is the whole of the change).
 |----------------|---------------------------------------------|--------------------------------------|
 | Enabling AI    | nothing to run — opens automatically        | `sudo taskflow-ai-window open`       |
 | Closing AI     | automatic, every 60 s, from policy verdict  | automatic after 120 min or manual `close` |
-| Gate logic     | practice done ∧ under 120 min/day ∧ single-session rule ∧ not curfew | same, checked at `open` time only |
+| Gate logic     | practice done ∧ two-block budget (60 min → 120 min zero-AI cooldown → 60 min) ∧ not curfew | same, checked at `open` time only |
 | Best fit      | "AI whenever allowed, automatically"          | "explicit, deliberate opt-in only"  |
 
 Budget mode install: `sudo bash install.sh` (or `sudo bash install.sh budget`).
@@ -62,8 +63,9 @@ nftables `taskflow_ai` (loaded by taskflow-aifirewall.service at boot):
   distro `dnsmasq` package (only `dnsmasq-base` is installed on this machine).
 - **`/usr/local/sbin/taskflow-ai-sink` + `taskflow-ai-sink.timer`** (budget mode) — the
   root decision engine. Every 60 s the timer runs `taskflow-ai-sink enforce`, which
-  reads `verify-governance --check-ai-budget` (practice done? daily <120 min? today's
-  single session rules? not curfew?) and flips the sinkhole to match. No command can
+  reads `verify-governance --check-ai-budget` (practice done? which block? 60 min used
+  → 120 min of silence → second block? under the daily cap? not curfew?) and flips
+  the sinkhole to match. No command can
   open AI — it is policy-driven and fails closed. Emergency stop: `sudo taskflow-ai-sink close`.
   Root reads yassine's repos and caches by injecting `HOME=/home/yassine` and
   `GIT_CONFIG_*` safe.directory (git's dubious-ownership check would otherwise lock it out).

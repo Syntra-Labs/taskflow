@@ -10,8 +10,9 @@
 # Semantics (all enforced by the same policy functions the commit gate uses):
 #   CLOSED until daily deliberate practice is done
 #   CLOSED during curfew (23:00-07:00)
-#   CLOSED once the 120-minute daily AI budget is consumed
-#   CLOSED once today's single AI session has concluded (mid-session stays open)
+#   CLOSED once the first 60-minute block is spent, until 120 minutes pass with
+#          zero AI events (then the second and final block opens)
+#   CLOSED once the 120-minute daily cap is consumed
 #   Otherwise: OPEN — no prompts, no commands, no window management.
 #
 # Safety: any error -> fails CLOSED. Only state *changes* rewrite the config or

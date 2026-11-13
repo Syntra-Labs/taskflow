@@ -21,8 +21,10 @@ deny contains msg if {
 }
 
 # =========================================================================
-# 2. SINGLE SESSION LIMIT (Max 1 session of 120 minutes / 2 hours per day)
+# 2. TWO-BLOCK DAILY BUDGET (60 min, 2-hour silence, 60 min — 120 min/day)
 # Counts ALL AI usage: agentic tool execution, vibe coding, AND browser AI.
+# The first block is 60 minutes. Block two opens only after >= 120 minutes
+# with NO AI events of any kind. Default deny when the cooldown has not elapsed.
 # =========================================================================
 deny contains msg if {
     session_minutes := input.session_minutes
@@ -31,9 +33,11 @@ deny contains msg if {
 }
 
 deny contains msg if {
-    input.sessions_completed >= 1
-    not input.in_active_session
-    msg := "HEALTH-002B: Single daily AI session limit reached. Policy allows only a single AI session (max 2 hours) per day, across agentic AND browser AI usage. Today's session has already concluded."
+    daily := input.daily_project_minutes
+    daily >= 60
+    daily < 120
+    not input.minutes_since_last_ai_event >= 120
+    msg := sprintf("HEALTH-002C: First 60-minute AI block spent (%d min used). The second block opens only after 120 minutes with zero AI usage — not one tool call, message, or page view. Log off. Session 2 begins at least 2 hours after your last AI event.", [daily])
 }
 
 # =========================================================================

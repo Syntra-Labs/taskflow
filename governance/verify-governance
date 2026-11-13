@@ -142,12 +142,12 @@ SESSION_GAP_SECONDS = 30 * 60
 def cluster_events(events, now_ts):
     """Cluster (start, end) events into sessions separated by > 30 min.
     Returns (daily_minutes, session_minutes, last_session_end,
-             sessions_completed, in_active_session).
+             sessions_completed, in_active_session, last_ai_event_ts).
     """
     events = sorted(set(events))
 
     if not events:
-        return 0, 0, None, 0, False
+        return 0, 0, None, 0, False, None
 
     sessions = []
     cur_start, cur_end = events[0]
@@ -179,7 +179,8 @@ def cluster_events(events, now_ts):
         else:
             daily_minutes += max(1, (e - s) // 60)
 
-    return daily_minutes, session_minutes, last_session_end, sessions_completed, in_active_session
+    last_ai_event_ts = sessions[-1][1]
+    return daily_minutes, session_minutes, last_session_end, sessions_completed, in_active_session, last_ai_event_ts
 
 def get_session_and_daily_minutes(activity_type="deep_work"):
     now = datetime.now()
@@ -359,6 +360,42 @@ def exercises_done_today():
         return 1
     return 0
 
+BLOCK_ONE_MAX_MIN = 60
+COOLDOWN_MIN = 120
+DAILY_CAP_MIN = 120
+
+def two_block_verdict(daily_minutes, last_ai_event_ts, now):
+    """Daily AI allowance as two 60-minute blocks separated by a 2-hour silence.
+    Block 1: AI open while daily < 60 min. Block 2: opens only after >= 120 minutes
+    with NO AI events, capped at 120 min total. Governance day resets at 07:00.
+    Returns (reasons, info) — reasons empty means the budget allows AI right now."""
+    reasons = []
+    now_ts = int(now.timestamp())
+    minutes_since_last_ai = int((now_ts - last_ai_event_ts) // 60) if last_ai_event_ts else None
+    time_in_cooldown = daily_minutes >= BLOCK_ONE_MAX_MIN and daily_minutes < DAILY_CAP_MIN
+    cooling_down = time_in_cooldown and not (minutes_since_last_ai is not None and minutes_since_last_ai >= COOLDOWN_MIN)
+
+    if daily_minutes >= DAILY_CAP_MIN:
+        reasons.append(f"HEALTH-003: daily cap reached ({daily_minutes} min / {DAILY_CAP_MIN} min)")
+        status = "spent"
+    elif cooling_down:
+        remaining = COOLDOWN_MIN - (minutes_since_last_ai if minutes_since_last_ai is not None else 0)
+        reasons.append(
+            f"HEALTH-002C: first 60-minute AI block spent ({daily_minutes} min used); "
+            f"second block opens after 120 min of silence — {remaining} min of cooldown remaining"
+        )
+        status = "cooldown"
+    else:
+        status = "block_1" if daily_minutes < BLOCK_ONE_MAX_MIN else "block_2"
+
+    info = {
+        "ai_block": status,
+        "minutes_since_last_ai_event": minutes_since_last_ai,
+        "cooldown_remaining_minutes": (COOLDOWN_MIN - minutes_since_last_ai)
+        if (cooling_down and minutes_since_last_ai is not None) else None,
+    }
+    return reasons, info
+
 def ai_window_eligible():
     """Machine-readable eligibility for opening the 120-minute AI network window.
     Used by /usr/local/sbin/taskflow-ai-window (root, NOPASSWD sudoers entry).
@@ -367,7 +404,7 @@ def ai_window_eligible():
     now = datetime.now()
     reasons = []
 
-    daily_minutes, session_minutes, session_end_timestamp, sessions_completed, in_active_session = get_session_and_daily_minutes("deep_work")
+    daily_minutes, session_minutes, session_end_timestamp, sessions_completed, in_active_session, last_ai_event_ts = get_session_and_daily_minutes("deep_work")
 
     # CURFEW
     if now.hour >= 23 or now.hour < 7:
@@ -377,13 +414,9 @@ def ai_window_eligible():
     if not exercises_done_today():
         reasons.append("PRACTICE-001: daily deliberate practice not completed")
 
-    # SINGLE SESSION PER DAY — the window IS the session
-    if sessions_completed >= 1 and not in_active_session:
-        reasons.append("HEALTH-002B: today's single AI session has already concluded")
-
-    # DAILY CAP
-    if daily_minutes >= 120:
-        reasons.append(f"HEALTH-003: daily cap reached ({daily_minutes} min / 120 min)")
+    # TWO-BLOCK DAILY BUDGET (60 min, 2h silence, 60 min)
+    block_reasons, block_info = two_block_verdict(daily_minutes, last_ai_event_ts, now)
+    reasons.extend(block_reasons)
 
     eligible = len(reasons) == 0
     print(json.dumps({
@@ -393,20 +426,21 @@ def ai_window_eligible():
         "sessions_completed": sessions_completed,
         "in_active_session": in_active_session,
         "session_minutes": session_minutes,
+        **block_info,
         "as_of": int(now.timestamp())
     }))
 
 def ai_budget_open():
     """Machine-readable daily-budget verdict for the sinkhole enforcer.
     Used by /usr/local/sbin/taskflow-ai-sink (root, run by systemd timer every minute).
-    Prints JSON; always exits 0. Semantics: AI is reachable whenever the daily
-    allowance remains — practice done, not in curfew, under the 120-minute cap,
-    and (one session per day) not already concluded. No command is required.
+    Prints JSON; always exits 0. Semantics: AI is reachable inside the daily budget —
+    two 60-minute blocks per governance day separated by 120 minutes of silence.
+    Practice-first, under the 120-minute cap, not in curfew. No command is required.
     """
     now = datetime.now()
     reasons = []
 
-    daily_minutes, session_minutes, session_end_timestamp, sessions_completed, in_active_session = get_session_and_daily_minutes("deep_work")
+    daily_minutes, session_minutes, session_end_timestamp, sessions_completed, in_active_session, last_ai_event_ts = get_session_and_daily_minutes("deep_work")
 
     # CURFEW — before 07:00 or after 23:00
     if now.hour >= 23 or now.hour < 7:
@@ -416,13 +450,9 @@ def ai_budget_open():
     if not exercises_done_today():
         reasons.append("PRACTICE-001: daily deliberate practice not completed")
 
-    # DAILY CAP
-    if daily_minutes >= 120:
-        reasons.append(f"HEALTH-003: daily cap reached ({daily_minutes} min / 120 min)")
-
-    # SINGLE SESSION PER DAY — only when NOT mid-session
-    if sessions_completed >= 1 and not in_active_session:
-        reasons.append("HEALTH-002B: today's single AI session has already concluded")
+    # TWO-BLOCK DAILY BUDGET (60 min, 2h silence, 60 min)
+    block_reasons, block_info = two_block_verdict(daily_minutes, last_ai_event_ts, now)
+    reasons.extend(block_reasons)
 
     print(json.dumps({
         "open": len(reasons) == 0,
@@ -431,6 +461,7 @@ def ai_budget_open():
         "sessions_completed": sessions_completed,
         "in_active_session": in_active_session,
         "session_minutes": session_minutes,
+        **block_info,
         "as_of": int(now.timestamp())
     }))
 
@@ -449,7 +480,7 @@ def main():
     has_deepwork_signatures = os.path.isdir("Makefile") or os.path.isdir("tests") or os.path.isdir("src") or os.path.isdir("c_src") or os.path.isdir("vendor")
     activity_type = "deep_work" if project == "practice" else ("vibe_coding" if not has_deepwork_signatures else "deep_work")
 
-    daily_minutes, session_minutes, session_end_timestamp, sessions_completed, in_active_session = get_session_and_daily_minutes(activity_type)
+    daily_minutes, session_minutes, session_end_timestamp, sessions_completed, in_active_session, last_ai_event_ts = get_session_and_daily_minutes(activity_type)
 
     # Governance day starts at 7:00 AM (not calendar midnight)
     if now.hour >= 7:
@@ -465,6 +496,11 @@ def main():
     if session_end_timestamp:
         minutes_since_last_session_end = int((int(now.timestamp()) - session_end_timestamp) // 60)
 
+    # Minutes since the most recent AI event of ANY kind (drives HEALTH-002C)
+    minutes_since_last_ai_event = None
+    if last_ai_event_ts:
+        minutes_since_last_ai_event = int((int(now.timestamp()) - last_ai_event_ts) // 60)
+
     eval_input = {
         "project": project,
         "activity_type": activity_type,
@@ -475,6 +511,7 @@ def main():
         "timestamp": int(now.timestamp()),
         "session_end_timestamp": session_end_timestamp,
         "minutes_since_last_session_end": minutes_since_last_session_end,
+        "minutes_since_last_ai_event": minutes_since_last_ai_event,
         "sessions_completed": sessions_completed,
         "in_active_session": in_active_session
     }
