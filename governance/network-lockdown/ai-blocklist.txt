@@ -1,0 +1,87 @@
+# Taskflow AI network blocklist
+# One domain per line. dnsmasq sinkholes the domain AND all its subdomains
+# (address=/<domain>/0.0.0.0 and address=/<domain>/::).
+# Used only while the AI network window is CLOSED (the default).
+# General browsing, Gmail, Docs, Search, GitHub, package registries: unaffected.
+
+# --- OpenAI / ChatGPT ---
+chatgpt.com
+openai.com
+openai.azure.com
+api.openai.com
+platform.openai.com
+auth0.openai.com
+cdn.openai.com
+openai.co
+
+# --- Anthropic / Claude ---
+claude.ai
+clau.de
+anthropic.com
+api.anthropic.com
+console.anthropic.com
+accounts.anthropic.com
+
+# --- Google Gemini / AI Studio / Bard ---
+gemini.google.com
+aistudio.google.com
+bard.google.com
+generativelanguage.googleapis.com
+ai.google.dev
+
+# --- DeepSeek ---
+deepseek.com
+chat.deepseek.com
+platform.deepseek.com
+accounts.deepseek.com
+
+# --- xAI / Grok ---
+grok.com
+x.ai
+grokx.ai
+api.x.ai
+
+# --- Microsoft / GitHub Copilot ---
+copilot.microsoft.com
+copilot.github.com
+githubcopilot.com
+
+# --- Perplexity ---
+perplexity.ai
+api.perplexity.ai
+
+# --- Mistral ---
+mistral.ai
+chat.mistral.ai
+api.mistral.ai
+
+# --- Cohere ---
+cohere.com
+api.cohere.com
+
+# --- Groq ---
+groq.com
+api.groq.com
+
+# --- Hugging Face (inference) ---
+huggingface.co
+hf.co
+api.huggingface.co
+
+# --- Together AI ---
+together.xyz
+together.us
+api.together.xyz
+
+# --- Replicate ---
+replicate.com
+api.replicate.com
+
+# --- Other major AI chat/assistant services ---
+poe.com
+phind.com
+you.com
+writesonic.com
+chat.com
+meta.ai
+metaai.com

@@ -274,6 +274,74 @@ def check_local_practice_today():
         pass
     return False
 
+def exercises_done_today():
+    """1 if today's deliberate practice is done (LeetCode/Codeforces/Deep-ML/local), else 0."""
+    now = datetime.now()
+    if now.hour >= 7:
+        governance_day_str = now.strftime("%Y-%m-%d")
+    else:
+        governance_day_str = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # Fast path: daily cache
+    if os.path.exists(DAILY_CACHE_FILE):
+        try:
+            with open(DAILY_CACHE_FILE, "r") as f:
+                cdata = json.load(f)
+            if cdata.get("date") == governance_day_str and cdata.get("exercises_done"):
+                return 1
+        except Exception:
+            pass
+
+    leetcode_done = check_leetcode_today()
+    codeforces_done = check_codeforces_today()
+    deepml_done = check_deepml_today()
+    practice_done = check_local_practice_today()
+    if leetcode_done or codeforces_done or deepml_done or practice_done:
+        try:
+            with open(DAILY_CACHE_FILE, "w") as f:
+                json.dump({"date": governance_day_str, "exercises_done": True, "cached_at": int(now.timestamp())}, f)
+        except Exception:
+            pass
+        return 1
+    return 0
+
+def ai_window_eligible():
+    """Machine-readable eligibility for opening the 120-minute AI network window.
+    Used by /usr/local/sbin/taskflow-ai-window (root, NOPASSWD sudoers entry).
+    Prints JSON; always exits 0 (it is a query, not a gate).
+    """
+    now = datetime.now()
+    reasons = []
+
+    daily_minutes, session_minutes, session_end_timestamp, sessions_completed, in_active_session = get_session_and_daily_minutes("deep_work")
+
+    # CURFEW
+    if now.hour >= 23 or now.hour < 7:
+        reasons.append(f"HEALTH-001: curfew active ({now.hour}:00)")
+
+    # PRACTICE FIRST
+    if not exercises_done_today():
+        reasons.append("PRACTICE-001: daily deliberate practice not completed")
+
+    # SINGLE SESSION PER DAY — the window IS the session
+    if sessions_completed >= 1 and not in_active_session:
+        reasons.append("HEALTH-002B: today's single AI session has already concluded")
+
+    # DAILY CAP
+    if daily_minutes >= 120:
+        reasons.append(f"HEALTH-003: daily cap reached ({daily_minutes} min / 120 min)")
+
+    eligible = len(reasons) == 0
+    print(json.dumps({
+        "eligible": eligible,
+        "reasons": reasons,
+        "daily_ai_minutes": daily_minutes,
+        "sessions_completed": sessions_completed,
+        "in_active_session": in_active_session,
+        "session_minutes": session_minutes,
+        "as_of": int(now.timestamp())
+    }))
+
 def main():
     if not os.path.exists(POLICY_FILE) or not os.path.exists(OPA_BIN):
         return 0
@@ -293,30 +361,8 @@ def main():
     else:
         # Previous calendar day but still governance day
         governance_day_str = (now - timedelta(days=1)).strftime("%Y-%m-%d")
-    exercises_done = 0
 
-    # Check daily cache first to avoid slow network roundtrips on every hook call
-    if os.path.exists(DAILY_CACHE_FILE):
-        try:
-            with open(DAILY_CACHE_FILE, "r") as f:
-                cdata = json.load(f)
-            if cdata.get("date") == governance_day_str and cdata.get("exercises_done"):
-                exercises_done = 1
-        except Exception:
-            pass
-
-    if not exercises_done:
-        leetcode_done = check_leetcode_today()
-        codeforces_done = check_codeforces_today()
-        deepml_done = check_deepml_today()
-        practice_done = check_local_practice_today()
-        if leetcode_done or codeforces_done or deepml_done or practice_done:
-            exercises_done = 1
-            try:
-                with open(DAILY_CACHE_FILE, "w") as f:
-                    json.dump({"date": governance_day_str, "exercises_done": True, "cached_at": int(now.timestamp())}, f)
-            except Exception:
-                pass
+    exercises_done = exercises_done_today()
 
     # Calculate minutes since last session ended (if any)
     minutes_since_last_session_end = None
@@ -354,9 +400,9 @@ def main():
         raw_out = proc.stdout.decode("utf-8").strip()
         violations = json.loads(raw_out) if raw_out else []
     except Exception as e:
-        # If OPA evaluation fails for unexpected reason, do not fail-silent, but do not block critical work
-        print(f"⚠️  Policy engine warning: {e}", file=sys.stderr)
-        return 0
+        # Fail-closed: if OPA evaluation fails for any reason, deny rather than silently allow
+        print(f"🛑 Policy engine error — failing closed: {e}", file=sys.stderr)
+        sys.exit(1)
 
     if violations:
         RED = "\033[1;31m"
@@ -374,4 +420,7 @@ def main():
     return 0
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--check-ai-window":
+        ai_window_eligible()
+        sys.exit(0)
     sys.exit(main())

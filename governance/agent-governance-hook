@@ -26,8 +26,13 @@ def main():
                     "reason": reason
                 }))
                 return 0
-        except Exception:
-            pass
+        except Exception as e:
+            # Fail-closed: subprocess error means we cannot verify policy — deny
+            print(json.dumps({
+                "decision": "deny",
+                "reason": f"GOVERNANCE-ERROR: policy check failed with exception ({e}). Failing closed."
+            }))
+            return 0
 
     print(json.dumps({"decision": "allow"}))
     return 0

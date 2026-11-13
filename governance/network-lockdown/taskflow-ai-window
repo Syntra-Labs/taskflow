@@ -1,0 +1,114 @@
+#!/bin/bash
+# taskflow-ai-window — root-owned maintenance of the 120-minute AI network window.
+#
+# Policy:
+#   CLOSED (default): all AI hosts resolve to 0.0.0.0/:: via dnsmasq sinkhole.
+#   OPEN: sinkhole lifted for exactly 120 minutes, once per governance day,
+#         only if verify-governance --check-ai-window reports eligible
+#         (not curfew, practice done, no session already concluded, daily cap not reached).
+#   A transient systemd timer force-CLOSES the window after 120 minutes.
+#
+# Callers never manage the machine: the window decides itself from policy.
+# The daily session semantics match governance.rego (HEALTH-002 single session / HEALTH-003 cap).
+
+set -euo pipefail
+
+BLOCKLIST=/etc/taskflow/ai-blocklist.txt
+STATE_DIR=/var/lib/taskflow
+STATE_FILE=$STATE_DIR/ai-window.json
+DNS_CONF=/etc/taskflow/ai-sinkhole.conf
+VG=/home/yassine/code/taskflow/governance/verify-governance
+PY=/usr/bin/python3
+WINDOW_SECONDS=7200
+
+usage() {
+    echo "usage: taskflow-ai-window {open|close|status}" >&2
+    exit 2
+}
+
+reload_dnsmasq() {
+    systemctl reload taskflow-dnsmasq 2>/dev/null || systemctl restart taskflow-dnsmasq
+}
+
+write_sinkhole() {
+    : > "$DNS_CONF"
+    echo "# AI network window CLOSED (default state). Managed by taskflow-ai-window." >> "$DNS_CONF"
+    while IFS= read -r domain; do
+        # skip blanks and comments
+        [[ -z "$domain" || "$domain" == \#* ]] && continue
+        echo "address=/$domain/0.0.0.0" >> "$DNS_CONF"
+        echo "address=/$domain/::" >> "$DNS_CONF"
+    done < "$BLOCKLIST"
+}
+
+case "${1:-status}" in
+
+  open)
+    # Eligibility is decided by the governance engine, not by the caller.
+    elig_json=$("$PY" "$VG" --check-ai-window)
+    ok=$(printf '%s' "$elig_json" | "$PY" -c 'import json,sys; print(json.load(sys.stdin).get("eligible"))')
+    if [ "$ok" != "True" ]; then
+        echo "AI network window REFUSED — policy not satisfied:" >&2
+        printf '%s\n' "$elig_json" | "$PY" -m json.tool >&2
+        exit 1
+    fi
+
+    # Guard: already open and not yet expired -> no-op success.
+    if [[ -f "$STATE_FILE" ]]; then
+        existing=$("$PY" -c 'import json,sys; d=json.load(open(sys.argv[1])); print((d.get("state")=="open" and d.get("closes_at",0) or 0))' "$STATE_FILE" 2>/dev/null || echo 0)
+        now=$(date +%s)
+        if [[ "$existing" =~ ^[0-9]+$ ]] && (( existing > now )); then
+            echo "AI window already open, closes at $(date -d "@$existing")."
+            exit 0
+        fi
+    fi
+
+    now=$(date +%s)
+    closes=$((now + WINDOW_SECONDS))
+
+    mkdir -p "$STATE_DIR"
+
+    # Lift the sinkhole.
+    : > "$DNS_CONF"
+    echo "# AI network window OPEN — sinkhole lifted for 120 minutes. Managed by taskflow-ai-window." >> "$DNS_CONF"
+    reload_dnsmasq
+
+    # Arm the force-close FIRST; if it cannot be scheduled, re-close the window now.
+    if ! systemd-run --quiet --on-active="${WINDOW_SECONDS}" --unit="taskflow-ai-window-close-$now" --collect \
+        /usr/local/sbin/taskflow-ai-window close; then
+        echo "FATAL: could not schedule auto-close; re-closing the window now." >&2
+        write_sinkhole
+        reload_dnsmasq
+        printf '{"state":"closed","closed_at":%s,"reason":"auto-close scheduling failed"}\n' "$(date +%s)" > "$STATE_FILE"
+        exit 1
+    fi
+
+    printf '{"state":"open","opened_at":%d,"closes_at":%d}\n' "$now" "$closes" > "$STATE_FILE"
+    chmod 0644 "$STATE_FILE"
+
+    echo "AI network window OPEN. Closes automatically in 120 minutes at $(date -d "@$closes")."
+    echo "General browsing, Gmail, Docs, Search, GitHub: unaffected."
+    ;;
+
+  close)
+    write_sinkhole
+    reload_dnsmasq
+    mkdir -p "$STATE_DIR"
+    printf '{"state":"closed","closed_at":%s}\n' "$(date +%s)" > "$STATE_FILE"
+    chmod 0644 "$STATE_FILE"
+    echo "AI network window CLOSED. All AI hosts are sinkholed."
+    ;;
+
+  status)
+    echo "window state file:"
+    cat "$STATE_FILE" 2>/dev/null || echo '{"state":"closed","note":"no window file present (default = closed)"}'
+    echo
+    echo "dnsmasq sinkhole configuration:"
+    grep -c 'address=' "$DNS_CONF" 2>/dev/null | sed 's/^/  ai hosts sinkholed: /'
+    echo "  (0 = window open or sinkhole not installed)"
+    ;;
+
+  *)
+    usage
+    ;;
+esac
