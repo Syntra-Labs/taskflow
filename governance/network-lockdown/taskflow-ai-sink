@@ -51,7 +51,15 @@ write_open() {
 
 reload_dnsmasq() {
     [[ "$SKIP_RELOAD" == "1" ]] && return 0
-    systemctl reload taskflow-dnsmasq 2>/dev/null || systemctl restart taskflow-dnsmasq
+    # SIGHUP via `systemctl reload` did NOT re-read the config on the target machine
+    # (AI domains kept resolving for 15+ minutes after the flip to closed).
+    # Restarting is deterministic; outage is ~50 ms, and flips are rare.
+    if ! systemctl restart taskflow-dnsmasq; then
+        log "RESTART of taskflow-dnsmasq FAILED — enforcement is NOT in effect; will retry next tick"
+        echo unknown > "$STATE_FILE"   # state != desired -> retried on the next timer tick
+        return 1
+    fi
+    return 0
 }
 
 enforce() {
@@ -77,13 +85,19 @@ enforce() {
 
     if [[ "$open" == "True" ]]; then
         if [[ "$cur" != "open" ]]; then
-            write_open; reload_dnsmasq; echo open > "$STATE_FILE"; chmod 0644 "$STATE_FILE"
-            log "OPEN — budget available: $(printf '%s' "$elig_json")"
+            write_open
+            if reload_dnsmasq; then
+                echo open > "$STATE_FILE"; chmod 0644 "$STATE_FILE"
+                log "OPEN — budget available: $(printf '%s' "$elig_json")"
+            fi
         fi
     else
         if [[ "$cur" != "closed" ]]; then
-            write_sinkhole; reload_dnsmasq; echo closed > "$STATE_FILE"; chmod 0644 "$STATE_FILE"
-            log "CLOSED — reasons: $(printf '%s' "$elig_json" | "$PY" -c 'import json,sys; print(", ".join(json.load(sys.stdin).get("reasons", ["unknown"])))')"
+            write_sinkhole
+            if reload_dnsmasq; then
+                echo closed > "$STATE_FILE"; chmod 0644 "$STATE_FILE"
+                log "CLOSED — reasons: $(printf '%s' "$elig_json" | "$PY" -c 'import json,sys; print(", ".join(json.load(sys.stdin).get("reasons", ["unknown"])))')"
+            fi
         fi
     fi
 }

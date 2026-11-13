@@ -82,11 +82,17 @@ EOF
 chmod 0644 /etc/taskflow/dnsmasq-main.conf
 
 if [[ "$MODE" == "budget" ]]; then
-  # Budget mode: start OPEN (comment-only sinkhole). The enforcer timer closes it
-  # on its first tick if the budget is exhausted — deny by default within 60s of install.
-  cat > /etc/taskflow/ai-sinkhole.conf <<EOF
+  # Budget mode: start OPEN (comment-only sinkhole) ONLY on a FRESH install.
+  # On reinstall, PRESERVE the existing state — re-seeding would silently re-open AI.
+  if [[ -f /var/lib/taskflow/sink-state && -s /etc/taskflow/ai-sinkhole.conf ]]; then
+    echo "  existing state found ($(cat /var/lib/taskflow/sink-state)) — preserving sinkhole config and state."
+    PRESERVE_STATE=1
+  else
+    PRESERVE_STATE=0
+    cat > /etc/taskflow/ai-sinkhole.conf <<EOF
 # AI budget available — managed by taskflow-ai-sink (auto-flips with the daily allowance). Installed $TS.
 EOF
+  fi
 else
   {
     echo "# AI network window CLOSED (installed $TS). Managed by taskflow-ai-window."
@@ -97,10 +103,12 @@ else
     done < /etc/taskflow/ai-blocklist.txt
   } > /etc/taskflow/ai-sinkhole.conf
 fi
-# Seed state file so the enforcer treats the current file as authoritative
+# Seed state file on fresh installs only (see above)
 mkdir -p /var/lib/taskflow
-if [[ "$MODE" == "budget" ]]; then echo open > /var/lib/taskflow/sink-state; else echo closed > /var/lib/taskflow/sink-state; fi
-chmod 0644 /var/lib/taskflow/sink-state
+if [[ "$MODE" == "budget" && "${PRESERVE_STATE:-0}" == "1" ]]; then
+  :
+elif [[ "$MODE" == "budget" ]]; then echo open > /var/lib/taskflow/sink-state; else echo closed > /var/lib/taskflow/sink-state; fi
+chmod 0644 /var/lib/taskflow/sink-state 2>/dev/null || true
 chmod 0644 /etc/taskflow/ai-sinkhole.conf
 
 echo "== [5/9] nftables: drop non-privileged DNS egress (53/853) — only the sinkhole speaks DNS"
@@ -188,6 +196,19 @@ if [[ "$MODE" == "window" && "$ai_result" != "0.0.0.0" ]]; then
 fi
 if [[ "$MODE" == "budget" ]]; then
   /usr/local/sbin/taskflow-ai-sink status 2>/dev/null | head -1 || true
+  # Enforcement must ACTUALLY work after install: if the verdict is closed, chatgpt.com
+  # MUST resolve to 0.0.0.0 — otherwise roll the whole install back rather than leave a
+  # false impression of enforcement.
+  verdict_open=$(/usr/local/sbin/taskflow-ai-sink status 2>/dev/null | python3 -c "import sys,json,re; m=re.search(r'\{.*\}', sys.stdin.read(), re.S); print(json.loads(m.group(0)).get('open'))" 2>/dev/null || echo unknown)
+  if [[ "$verdict_open" == "False" ]]; then
+    ai_after=$(getent ahostsv4 chatgpt.com | awk '{print $1; exit}')
+    echo "  closed-verdict probe: chatgpt.com -> ${ai_after:-no answer}"
+    if [[ "$ai_after" != "0.0.0.0" ]]; then
+      rollback "budget verdict is closed but chatgpt.com still resolves (${ai_after:-no answer})."
+    fi
+  else
+    echo "  enforcement probe: verdict is 'open' (budget available) — sinkhole will engage on first flip."
+  fi
 fi
 
 echo "== [9/9] done."
